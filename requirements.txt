@@ -1,0 +1,13 @@
+numpy
+trimesh
+plotly==5.9.0
+scipy
+matplotlib
+pyopengl
+networkx
+pillow
+nbformat
+ipykernel
+anywidget
+notebook
+Pillow
