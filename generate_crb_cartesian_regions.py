@@ -134,6 +134,40 @@ def plot_crb_regions_compare_cartesian(
     return fig
 
 
+def plot_polar_vs_cartesian(
+    results: Sequence[Dict[str, Any]],
+    suptitle: str,
+    output_path: Optional[str | Path] = None,
+    dpi: int = 200,
+):
+    """Side-by-side: same 3-sigma regions in polar (arched) vs Cartesian (straight)."""
+    from crb_polar_functions import plot_crb_regions_polar
+
+    fig = plt.figure(figsize=(12, 5))
+    ax_polar = fig.add_subplot(1, 2, 1, projection="polar")
+    ax_cart = fig.add_subplot(1, 2, 2)
+
+    plot_crb_regions_polar(
+        results,
+        use_physical_region=False,
+        rlim=2.0,
+        title=r"Polar: CRB$(\rho,\varphi,h)$",
+        ax=ax_polar,
+    )
+    plot_crb_regions_cartesian(
+        results,
+        title=r"Cartesiano: CRB$(\rho,\varphi,h)$",
+        ax=ax_cart,
+    )
+    fig.suptitle(suptitle, fontsize=11)
+    fig.tight_layout()
+    if output_path is not None:
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(output_path, dpi=dpi)
+    return fig
+
+
 def main() -> None:
     PLOTS.mkdir(exist_ok=True)
     cache = load_cache()
@@ -168,7 +202,28 @@ def main() -> None:
         hard3,
         output_path=PLOTS / "crb_regions_compare_rho1p5_cartesian.png",
     )
-    print("Saved crb_regions_compare_rho1p5_cartesian.png. DONE.", flush=True)
+    print("Saved crb_regions_compare_rho1p5_cartesian.png", flush=True)
+
+    plot_polar_vs_cartesian(
+        results_3,
+        suptitle=(
+            r"Misma region $3\sigma$ — Polar (arqueada) vs "
+            r"Cartesiano (elipse recta)"
+        ),
+        output_path=PLOTS / "crb_regions_polar_vs_cartesian.png",
+    )
+    print("Saved crb_regions_polar_vs_cartesian.png", flush=True)
+
+    hard3_pvc = [r for r in results_3 if abs(r["rho0"] - 1.5) < 1e-9]
+    plot_polar_vs_cartesian(
+        hard3_pvc,
+        suptitle=(
+            r"Misma region $3\sigma$ ($\rho_0=1.5$ m) — Polar (arqueada) vs "
+            r"Cartesiano (elipse recta)"
+        ),
+        output_path=PLOTS / "crb_regions_polar_vs_cartesian_rho1p5.png",
+    )
+    print("Saved crb_regions_polar_vs_cartesian_rho1p5.png. DONE.", flush=True)
 
 
 if __name__ == "__main__":
