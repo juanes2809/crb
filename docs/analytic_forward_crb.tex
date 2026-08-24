@@ -56,7 +56,7 @@
 
 \title{Un forward anal\'itico \emph{diferenciable} para el CRB de la
 c\'amara de esquina activa\\[4pt]
-\large Del render rasterizado a derivadas cerradas (Camino A)}
+\large De la \textbf{funci\'on del simulador} a derivadas cerradas (Camino A)}
 \author{Obstacle Detection Study}
 \date{\today}
 
@@ -64,23 +64,30 @@ c\'amara de esquina activa\\[4pt]
 \maketitle
 
 \begin{abstract}
-Este documento explica, en orden pedag\'ogico, c\'omo construimos un
-\textbf{forward anal\'itico diferenciable} de la faceta oculta para el c\'alculo
-del Cram\'er--Rao (CRB), con \textbf{derivadas parciales cerradas}, sin modificar
-el simulador rasterizado existente (\texttt{pyerti.py},
+Estas son \textbf{notas del ``por qu\'e''} de c\'omo volvimos
+\emph{diferenciable} el forward que ya usa el simulador, para poder calcular el
+Cram\'er--Rao (CRB) con \textbf{derivadas parciales cerradas} sin tocar el
+simulador rasterizado (\texttt{pyerti.py},
 \texttt{simulation\_polar\_clean.ipynb}, \texttt{crb\_polar\_functions.py}).
-Partimos del forward \emph{actual} --- un render rasterizado cuyas fuentes de
-no diferenciabilidad (cuantizaci\'on temporal con \texttt{ceil}, ocultamiento
-por umbral duro, \emph{clamps} \texttt{max}$(0,\cdot)$, dep\'osito en p\'ixeles y
-bins enteros) impiden escribir $\partial g/\partial\vect{\psi}$ en forma
-cerrada --- y lo reemplazamos, pieza por pieza, por an\'alogos suaves de clase
-$C^\infty$: la masa de Dirac en un bin se convierte en la integral anal\'itica de
-un pulso gaussiano (diferencia de $\erf$), el ocultamiento por umbral en una
-sigmoide de penumbra, y los \emph{clamps} en \emph{softplus}. Las derivadas se
-obtienen \textbf{simb\'olicamente} con \texttt{sympy} (an\'alogo al Mathematica
-del \emph{writeup}) y se validan contra diferencias finitas del mismo forward
-suave, con error m\'aximo relativo $\sim\!5\times10^{-10}$. El c\'odigo est\'a en
-\texttt{crb\_analytic\_forward.py} y la validaci\'on en
+El punto de partida \textbf{no} es el modelo del \emph{writeup}, sino la
+\emph{propia funci\'on del simulador}: el bucle de tri\'angulos de la celda~8 de
+\texttt{simulation\_polar\_clean.ipynb} (l\'ineas $\sim$208--318), un modelo de
+\textbf{dos rebotes} (l\'aser$\to$faceta$\to$p\'ixel de piso) cuya intensidad por
+p\'ixel usa \textbf{cuatro cosenos} de \emph{foreshortening}, la constante
+$4\pi^2$ y las dos distancias $d_1,d_2$. Identificamos sus \textbf{tres} fuentes
+de no diferenciabilidad --- el binning temporal \texttt{ceil} (masa de Dirac en
+un bin), el ocultamiento por umbral \texttt{xint}$>0$ (Heaviside) y los
+\emph{clamps} \texttt{max}$(0,\cdot)$ en los cosenos --- y las reemplazamos, una
+por una y justificando \emph{por qu\'e} cada elecci\'on, por an\'alogos suaves de
+clase $C^\infty$: la masa de Dirac por la integral anal\'itica de un pulso
+gaussiano (diferencia de $\erf$), el umbral por una sigmoide de penumbra, y los
+\emph{clamps} por \emph{softplus}. Presentamos por separado, y ambas
+\textbf{paso a paso}, una secci\'on de \textbf{construcci\'on} y otra de
+\textbf{justificaci\'on matem\'atica}. Las derivadas se obtienen
+\textbf{simb\'olicamente} con \texttt{sympy} (an\'alogo al Mathematica del
+\emph{writeup}) y se validan contra diferencias finitas del mismo forward suave,
+con error m\'aximo relativo $\sim\!5\times10^{-10}$. C\'odigo:
+\texttt{crb\_analytic\_forward.py}; validaci\'on:
 \texttt{validate\_analytic\_forward.py}.
 \end{abstract}
 
@@ -88,327 +95,408 @@ suave, con error m\'aximo relativo $\sim\!5\times10^{-10}$. El c\'odigo est\'a e
 \bigskip\hrule\bigskip
 
 %==============================================================================
-\section{Punto de partida: el forward rasterizado y por qu\'e no es diferenciable}
+\section{El punto de partida: la funci\'on que usa el simulador}
 \label{sec:partida}
 %==============================================================================
 
 El c\'alculo actual del CRB (documentado en \texttt{sustento\_teorico\_crb.tex})
-usa como forward el simulador de transporte de luz \texttt{simulation} (motor
-\texttt{pyerti.py}). Para una pose $\vect{\psi}=(\rho,\varphi,h)$ produce un cubo
-transitorio esperado $y\in\R^{H\times W\times T}$ (p\'ixeles SPAD $\times$ bins de
-tiempo), y se forma $g=\operatorname{vec}(y+b)$ con fondo $b>0$.
+diferencia por \textbf{diferencias finitas} el forward del simulador de
+transporte de luz. Ese forward est\'a en el bucle de tri\'angulos de la celda~8
+de \texttt{simulation\_polar\_clean.ipynb} (l\'ineas $\sim$208--318). Aqu\'i lo
+transcribimos \emph{fielmente}, porque es \textbf{nuestro punto de partida}: la
+funci\'on que queremos volver diferenciable, tal cual est\'a.
 
-El simulador acumula, para cada tri\'angulo del \emph{mesh} de centro
-$\vect{c}$ y cada muestra de piso $\vect{p}_f$, una contribuci\'on de la forma
-(v\'ease \texttt{pyerti.py}, l\'ineas $\sim$278--312):
+\paragraph{Geometr\'ia (dos rebotes).}
+Para una pose $\vect{\psi}=(\rho,\varphi,h)$, cada tri\'angulo del \emph{mesh}
+aporta una faceta con centroide (\emph{scene point})
 \begin{equation}
-    \Delta y
-    \;\propto\;
-    I_{\mathrm{laser}}\, A\,
-    \frac{[\hat{\vect n}\!\cdot\!\hat{\vect u}_1]_+\,
-          [\hat{\vect n}\!\cdot\!\hat{\vect u}_2]_+\,
-          [\hat{\vect n}_l\!\cdot\!\hat{\vect u}_3]_+\,
-          [\hat{\vect n}_f\!\cdot\!\hat{\vect u}_4]_+}
-         {4\pi^2\, d_1^2\, d_2^2},
-    \label{eq:raster-dy}
+    \vect{p}_s=\bigl(\rho\cos\varphi,\ \rho\sin\varphi,\ h\bigr),
+    \qquad
+    \hat{\vect n}_s=(-\cos\varphi,\ -\sin\varphi,\ 0),
+    \label{eq:pose}
 \end{equation}
-depositada \'unicamente en el bin entero de llegada
+y el SPAD observa \emph{directamente} un punto de piso $\vect{p}_f$
+(\texttt{cam\_pos}). \'Este es un modelo de \textbf{dos rebotes}
+l\'aser$\to$faceta$\to$p\'ixel de piso (\textbf{no} tres): el l\'aser est\'a en
+$\vect{p}_l=(0,0,0)$ con normal $\hat{\vect n}_l=(0,0,1)$, y el piso tiene normal
+$\hat{\vect n}_f=(0,0,1)$. Se definen las dos distancias del camino
+\begin{equation}
+    \vect{lps}=\vect{p}_l-\vect{p}_s,\quad d_1=\norm{\vect{lps}};
+    \qquad
+    \vect{fovsp}=\vect{p}_f-\vect{p}_s,\quad d_2=\norm{\vect{fovsp}}.
+    \label{eq:dist}
+\end{equation}
+
+\paragraph{Intensidad por p\'ixel (cuatro cosenos, $4\pi^2$).}
+El simulador acumula la intensidad (celda~8, l\'ineas $\sim$283--308)
+\begin{equation}
+    \texttt{intensity}
+    =
+    I_{\mathrm{laser}}\; A\;
+    \frac{\texttt{dot1}\cdot\texttt{dot2}\cdot\texttt{dot3}\cdot\texttt{dot4}}
+         {4\pi^2\; d_1^2\; d_2^2},
+    \label{eq:raster-int}
+\end{equation}
+con $A$ el \'area del tri\'angulo y los \textbf{cuatro cosenos} de
+\emph{foreshortening}, cada uno con \emph{clamp} duro $[\,\cdot\,]_+=\max(0,\cdot)$:
+\begin{equation}
+\begin{aligned}
+    \texttt{dot1}&=\Bigl[\hat{\vect n}_s\!\cdot\!\tfrac{\vect{p}_l-\vect{p}_s}{d_1}\Bigr]_+,
+    &\quad
+    \texttt{dot2}&=\Bigl[\hat{\vect n}_s\!\cdot\!\tfrac{\vect{p}_f-\vect{p}_s}{d_2}\Bigr]_+,\\[3pt]
+    \texttt{dot3}&=\Bigl[\hat{\vect n}_l\!\cdot\!\tfrac{\vect{p}_s-\vect{p}_l}{d_1}\Bigr]_+,
+    &\quad
+    \texttt{dot4}&=\Bigl[\hat{\vect n}_f\!\cdot\!\tfrac{\vect{p}_s-\vect{p}_f}{d_2}\Bigr]_+ .
+\end{aligned}
+    \label{eq:raster-cos}
+\end{equation}
+(\texttt{dot1} y \texttt{dot3} son el \emph{foreshortening} en la faceta y en el
+l\'aser sobre el tramo l\'aser$\to$faceta; \texttt{dot2} y \texttt{dot4}, en la
+faceta y en el piso sobre el tramo faceta$\to$piso.)
+
+\paragraph{Tiempo de vuelo y dep\'osito en bin.}
+La intensidad se deposita \textbf{entera} en un \'unico bin entero de llegada
+(l\'ineas $\sim$270--271):
 \begin{equation}
     j \;=\; \left\lceil \frac{d_1+d_2}{c\,\Delta t} \right\rceil ,
-    \qquad d_1=\|\vect{p}_l-\vect{c}\|,\quad d_2=\|\vect{p}_f-\vect{c}\|,
     \label{eq:raster-ceil}
 \end{equation}
-y solo para los p\'ixeles \emph{no ocluidos}, seleccionados por la m\'ascara dura
+i.e.\ una masa de Dirac en el tiempo de vuelo $t_0=(d_1+d_2)/c$.
+
+\paragraph{Ocultamiento (m\'ascara dura).}
+Solo se cuentan los p\'ixeles \emph{no ocluidos}. Con la recta faceta$\to$p\'ixel
+en el plano $XY$ (l\'ineas $\sim$230--244),
 \begin{equation}
-    \texttt{noc}
-    \;=\;
-    \bigl(\texttt{xint}\ \text{finito}\bigr)\ \land\ (\texttt{xint}>0),
-    \qquad
-    \texttt{xint}=-b/m ,
+    m=\frac{s_y-p_{f,y}}{s_x-p_{f,x}},\quad
+    b_{\mathrm{line}}=s_y-m\,s_x,\quad
+    \texttt{xint}=-\frac{b_{\mathrm{line}}}{m},\quad
+    \texttt{noc}=\mathbf 1\{\texttt{xint}>0\},
     \label{eq:raster-noc}
 \end{equation}
-donde $m,b$ definen la recta faceta$\to$p\'ixel en el plano $XY$.
+con $s_x=\rho\cos\varphi,\ s_y=\rho\sin\varphi$. Algebraicamente
+\begin{equation}
+    \texttt{xint}
+    =
+    s_x - s_y\,\frac{s_x-p_{f,x}}{s_y-p_{f,y}},
+    \label{eq:xint}
+\end{equation}
+que es exactamente el \texttt{d\_edge} del c\'odigo actual.
 
-\begin{remark}[Por qu\'e $\partial g/\partial\vect{\psi}$ no existe en forma cerrada]
-Tres operaciones de \eqref{eq:raster-dy}--\eqref{eq:raster-noc} son
-\textbf{no diferenciables}:
+\begin{remark}[Las tres operaciones que impiden $\partial g/\partial\vect{\psi}$ cerrada]
+\label{rem:tres}
+Todo lo dem\'as de \eqref{eq:raster-int}--\eqref{eq:xint} es \textbf{suave} en
+$\vect{\psi}$: el \'area $A$, las distancias $d_1,d_2$, los productos internos
+\emph{crudos} $\hat{\vect n}\!\cdot\!\vect u$, y la ca\'ida radial
+$1/(4\pi^2 d_1^2 d_2^2)$. Las \textbf{tres} fuentes de no diferenciabilidad son,
+exactamente:
 \begin{enumerate}[nosep]
-    \item \textbf{Cuantizaci\'on temporal} \eqref{eq:raster-ceil}: la funci\'on
-    $\lceil\cdot\rceil$ es constante a trozos con saltos unitarios. Su derivada
-    es cero casi en todas partes y una \emph{delta} en los saltos: al mover
-    $\vect{\psi}$, la masa salta discretamente de un bin al siguiente.
-    \item \textbf{Ocultamiento por umbral} \eqref{eq:raster-noc}: la indicatriz
-    $\mathbf{1}\{\texttt{xint}>0\}$ es un Heaviside muestreado; su derivada es
-    una delta en la frontera iluminado/sombra.
-    \item \textbf{\emph{Clamps}} $[\,\cdot\,]_+=\max(0,\cdot)$ en el
-    \emph{foreshortening}: continuos pero no derivables en $0$ (codo).
+    \item \textbf{Binning \texttt{ceil}} \eqref{eq:raster-ceil}: masa de Dirac en
+    un bin entero. $\lceil\cdot\rceil$ es constante a trozos; su derivada
+    cl\'asica es $0$ salvo en saltos, donde no existe.
+    \item \textbf{Ocultamiento} $\mathbf 1\{\texttt{xint}>0\}$
+    \eqref{eq:raster-noc}: un Heaviside muestreado; derivada $=$ delta en la
+    frontera iluminado/sombra.
+    \item \textbf{\emph{Clamps}} $[\,\cdot\,]_+=\max(0,\cdot)$ en los cuatro
+    cosenos \eqref{eq:raster-cos}: continuos pero con codo no derivable en $0$.
 \end{enumerate}
 Adem\'as el dep\'osito en \'indices enteros de p\'ixel/bin es intr\'insecamente
-discreto. Por eso el pipeline vigente aproxima el Jacobiano por
-\textbf{diferencias finitas} centrales sobre \emph{todos} los bins, usa un fondo
-$b$ y un piso $\varepsilon$ (\texttt{fisher\_eps}) para que $1/g$ sea finito, y
-debe elegir con cuidado los pasos $\delta$ (p.\,ej.\ $\delta\rho=0.01$\,m,
-$\delta\varphi=0.5^\circ$, $\delta h=0.01$\,m). Este es el objeto que queremos
-\emph{volver diferenciable}.
+discreto. Por eso el pipeline vigente aproxima el Jacobiano por diferencias
+finitas centrales y debe elegir con cuidado los pasos $\delta$. \emph{Volver
+diferenciable} \eqref{eq:raster-int}--\eqref{eq:xint} es todo el problema.
+\end{remark}
+
+\begin{remark}[El \emph{writeup} solo como inspiraci\'on estructural]
+\label{rem:writeup}
+El modelo continuo del \emph{writeup} de la c\'amara de esquina activa (Seidel
+\emph{et al.}) usa \textbf{tres} rebotes, \textbf{cinco} cosenos y un denominador
+$8\pi^3$ (incluye la etapa c\'amara$\leftrightarrow$piso $\propto1/\norm{\vect
+p_c-\vect p_f}^2$). \textbf{No} lo tomamos como base: nuestra construcci\'on parte
+de la funci\'on del simulador \eqref{eq:raster-int} (dos rebotes, cuatro cosenos,
+$4\pi^2$). Del \emph{writeup} reutilizamos \'unicamente (i) la \textbf{estructura
+Poisson--Fisher} del CRB (Sec.~\ref{sec:fisher}) y (ii) la idea de \emph{derivar
+bajo el integrando} con un sistema de \'algebra simb\'olica. Las elecciones de
+suavizado (gaussiana$\to\erf$, sigmoide, softplus) se justifican por s\'i mismas
+en la Sec.~\ref{sec:construccion}. La posici\'on de c\'amara $\vect{p}_c$ y la
+distancia $\norm{\vect p_c-\vect p_f}$ \textbf{no} intervienen en el forward de
+dos rebotes.
 \end{remark}
 
 %==============================================================================
-\section{El modelo continuo del \emph{writeup}}
-\label{sec:continuo}
-%==============================================================================
-
-El \emph{writeup} de la c\'amara de esquina activa (Seidel \emph{et al.})
-parte de un modelo \textbf{continuo}. Con la faceta oculta puntual en
-$\vect{p}_s=[\rho\cos\varphi,\ \rho\sin\varphi,\ h]$ y normal
-$\hat{\vect n}_s=[-\cos\varphi,-\sin\varphi,0]$, l\'aser en $\vect{p}_l$
-(normal $\hat{\vect n}_l$), c\'amara en $\vect{p}_c$ y punto de piso
-$\vect{p}_f$ (normal $\hat{\vect n}_f$), la luz saliente en el instante $t$ es
-(ec.~1 del \emph{writeup})
-\begin{equation}
-    L_h(\vect{p}_f,t)
-    =
-    \frac{\alpha\, H(\pi+\theta-\varphi)\,
-          f(\vect{p}_c,\vect{p}_s,\vect{p}_l,\vect{p}_f)\,
-          s\!\left(t-\tfrac{\|\vect{p}_s-\vect{p}_l\|+\|\vect{p}_s-\vect{p}_f\|}{c}\right)}
-         {8\pi^3\,\|\vect{p}_c-\vect{p}_f\|^2\,
-          \|\vect{p}_s-\vect{p}_l\|^2\,\|\vect{p}_s-\vect{p}_f\|^2},
-    \label{eq:Lh}
-\end{equation}
-con $s(\cdot)$ el pulso, $H$ el escal\'on de Heaviside, $\alpha$ el albedo, y
-$f$ el \emph{foreshortening} (producto de cinco cosenos, ec.~2):
-\begin{equation}
-    f
-    =
-    \frac{\hat{\vect n}_f\!\cdot\!(\vect{p}_c-\vect{p}_f)}{\|\vect{p}_c-\vect{p}_f\|}\,
-    \frac{\hat{\vect n}_f\!\cdot\!(\vect{p}_s-\vect{p}_f)}{\|\vect{p}_f-\vect{p}_s\|}\,
-    \frac{\hat{\vect n}_s\!\cdot\!(\vect{p}_f-\vect{p}_s)}{\|\vect{p}_f-\vect{p}_s\|}\,
-    \frac{\hat{\vect n}_s\!\cdot\!(\vect{p}_l-\vect{p}_s)}{\|\vect{p}_l-\vect{p}_s\|}\,
-    \frac{\hat{\vect n}_l\!\cdot\!(\vect{p}_s-\vect{p}_l)}{\|\vect{p}_l-\vect{p}_s\|}.
-    \label{eq:foreshortening}
-\end{equation}
-La tasa de Poisson de la medici\'on $q=(i,j)$ (p\'ixel $i$, bin $j$) es la
-integral sobre el p\'ixel y el bin (ec.~3):
-\begin{equation}
-    y_q
-    =
-    \int_{(j-1)\Delta t}^{j\Delta t}\!\!\int_{\vect{p}\in P_i}
-    L_h(\vect{p}_f,t)\,d\vect{p}\,dt,
-    \qquad
-    g_q=y_q+b_q,\quad b_q>0.
-    \label{eq:yq}
-\end{equation}
-El \emph{writeup} deriva $\partial y_q/\partial\Psi_m$ \emph{bajo el integrando}
-con Mathematica (ecs.~9--11). Nuestro objetivo es reproducir esa idea con un
-forward propio, expl\'icito y diferenciable en c\'odigo.
-
-%==============================================================================
-\section{Volviendo la funci\'on diferenciable, paso a paso}
-\label{sec:suave}
+\section{Construcci\'on de una versi\'on diferenciable (paso a paso)}
+\label{sec:construccion}
 %==============================================================================
 
 Construimos un forward de \textbf{faceta puntual} que eval\'ua directamente el
-integrando de \eqref{eq:Lh} sobre una malla fija de p\'ixeles de piso
-$\{\vect{p}_{f,i}\}$ y una rejilla fija de bins $\{[t^{(j)}_{\mathrm{lo}},
-t^{(j)}_{\mathrm{hi}}]\}$, sustituyendo cada operaci\'on no diferenciable por su
-an\'alogo suave. Sea $\vect{p}_s(\vect{\psi})=[\rho\cos\varphi,\rho\sin\varphi,h]$.
+integrando de \eqref{eq:raster-int} sobre una malla fija de p\'ixeles de piso
+$\{\vect{p}_{f,i}\}$ y una rejilla fija de bins
+$\{[t^{(j)}_{\mathrm{lo}},t^{(j)}_{\mathrm{hi}}]\}$, reemplazando cada operaci\'on
+no diferenciable por su an\'alogo suave. Para cada una damos: \emph{c\'omo
+estaba}, \emph{por qu\'e no es derivable}, \emph{con qu\'e se reemplaza} y
+\emph{por qu\'e esa opci\'on}. El orden va de la pieza central hacia afuera.
 
+%------------------------------------------------------------------------------
 \subsection{(i) Binning temporal: de \texttt{ceil} a una diferencia de \texorpdfstring{$\erf$}{erf}}
 \label{sec:erf}
-Esta es \textbf{la pieza central}. En el rasterizador toda la intensidad de un
-p\'ixel se deposita en un \emph{\'unico} bin \eqref{eq:raster-ceil}: es una masa
-de Dirac en $t_0(\vect{\psi})$, con
+%------------------------------------------------------------------------------
+
+\textbf{C\'omo estaba.} La intensidad completa de un p\'ixel se deposita en un
+\emph{\'unico} bin \eqref{eq:raster-ceil}: una masa de Dirac en
 \begin{equation}
-    t_0(\vect{\psi})
-    =
-    \frac{\|\vect{p}_s-\vect{p}_l\|+\|\vect{p}_s-\vect{p}_f\|}{c}.
+    t_0(\vect{\psi})=\frac{d_1(\vect\psi)+d_2(\vect\psi)}{c}
+    =\frac{\norm{\vect{p}_s-\vect{p}_l}+\norm{\vect{p}_s-\vect{p}_f}}{c}.
     \label{eq:tof}
 \end{equation}
-Su an\'alogo suave es un \textbf{pulso gaussiano de \'area unitaria} centrado en
-$t_0$,
+
+\textbf{Por qu\'e no es derivable.} $\lceil\cdot\rceil$ es constante a trozos:
+al mover $\vect{\psi}$, la masa \emph{salta} discretamente de un bin al vecino.
+La derivada respecto de $\vect{\psi}$ es $0$ dentro de cada meseta y no existe en
+el salto (v\'ease la Prop.~\ref{prop:fd}).
+
+\textbf{Con qu\'e se reemplaza.} Por un \textbf{pulso gaussiano de \'area
+unitaria} centrado en $t_0$,
 \begin{equation}
-    s(t)
-    =
-    \frac{1}{\tau\sqrt{2\pi}}\,
+    s(t)=\frac{1}{\tau\sqrt{2\pi}}\,
     \exp\!\left(-\frac{(t-t_0(\vect{\psi}))^2}{2\tau^2}\right),
     \qquad
-    \int_{-\infty}^{\infty} s(t)\,dt = 1,
+    \int_{\R} s = 1,
     \label{eq:pulse}
 \end{equation}
-de modo que, al sumar sobre bins, se recupera la masa total (la ``intensidad''
-del rasterizador) pero de forma $C^\infty$. La integral del pulso sobre el bin
-$[t_{\mathrm{lo}},t_{\mathrm{hi}}]$ es \textbf{cerrada}: con el cambio
-$u=(t-t_0)/(\sqrt2\,\tau)$,
+cuya integral sobre el bin $[t_{\mathrm{lo}},t_{\mathrm{hi}}]$ es \emph{cerrada}
+(cambio $u=(t-t_0)/(\sqrt2\,\tau)$):
 \begin{equation}
     \boxed{\;
     S_j(\vect{\psi})
-    =
-    \int_{t^{(j)}_{\mathrm{lo}}}^{t^{(j)}_{\mathrm{hi}}} s(t)\,dt
-    =
-    \frac{1}{2}
+    =\int_{t^{(j)}_{\mathrm{lo}}}^{t^{(j)}_{\mathrm{hi}}} s(t)\,dt
+    =\frac{1}{2}
     \left[
         \erf\!\left(\frac{t^{(j)}_{\mathrm{hi}}-t_0(\vect{\psi})}{\sqrt2\,\tau}\right)
-        -
-        \erf\!\left(\frac{t^{(j)}_{\mathrm{lo}}-t_0(\vect{\psi})}{\sqrt2\,\tau}\right)
+        -\erf\!\left(\frac{t^{(j)}_{\mathrm{lo}}-t_0(\vect{\psi})}{\sqrt2\,\tau}\right)
     \right].
     \;}
     \label{eq:erf-bin}
 \end{equation}
-La funci\'on $\erf$ es entera (anal\'itica en todo $\R$), de modo que $S_j$ es
-$C^\infty$ en $\vect{\psi}$ a trav\'es de $t_0(\vect{\psi})$. Esto sustituye el
-salto discreto del $\lceil\cdot\rceil$ por una transici\'on suave: al mover
-$\vect{\psi}$, la masa se traspasa \emph{gradualmente} entre bins vecinos. El
-par\'ametro $\tau$ (desviaci\'on est\'andar del pulso, en segundos) fija el ancho
-temporal; por defecto $\tau=\Delta t=3.9\times10^{-10}$\,s.
 
+\textbf{Por qu\'e esta opci\'on.} Tres razones: (1) el pulso f\'isico del
+l\'aser/detector tiene \textbf{ancho temporal finito}, de modo que $\tau>0$ es
+m\'as fiel que la idealizaci\'on Dirac, no un truco; (2) la gaussiana es
+$C^\infty$ y su integral por bin es \textbf{cerrada} --- una diferencia de $\erf$,
+funci\'on entera (Lema~\ref{lem:erf}) --- as\'i que $S_j$ es $C^\infty$ en
+$\vect{\psi}$ a trav\'es de $t_0(\vect{\psi})$; (3) \textbf{conserva la masa}:
+$\sum_j S_j\to1$, de modo que al sumar sobre bins se recupera la ``intensidad''
+del rasterizador, pero ahora la masa se traspasa \emph{gradualmente} entre bins
+vecinos. Esta es \textbf{la pieza central}. Por defecto
+$\tau=\Delta t=3.9\times10^{-10}$\,s.
+
+%------------------------------------------------------------------------------
 \subsection{(ii) Ocultamiento: de umbral duro a sigmoide de penumbra}
 \label{sec:vis}
-La m\'ascara dura \eqref{eq:raster-noc} se define a partir de \texttt{xint}, la
-coordenada $x$ donde el segmento faceta$\to$p\'ixel cruza el eje $y=0$. La
-mantenemos \textbf{en forma cerrada} como funci\'on de borde (distancia firmada al
-plano de ocultamiento):
+%------------------------------------------------------------------------------
+
+\textbf{C\'omo estaba.} La m\'ascara dura \eqref{eq:raster-noc},
+$\texttt{noc}=\mathbf 1\{\texttt{xint}>0\}$, con \texttt{xint} la coordenada $x$
+donde el segmento faceta$\to$p\'ixel cruza $y=0$.
+
+\textbf{Por qu\'e no es derivable.} Es un Heaviside: discontinuo en la frontera
+$\{\texttt{xint}=0\}$; derivada cl\'asica $0$ a los lados y delta en la frontera
+(Teorema~\ref{thm:ift}).
+
+\textbf{Con qu\'e se reemplaza.} Mantenemos la \emph{misma} funci\'on de borde en
+forma cerrada,
 \begin{equation}
     d_{\mathrm{edge}}(\vect{\psi},\vect{p}_f)
-    =
-    s_x - s_y\,\frac{s_x-p_x}{s_y-p_y},
-    \qquad
-    s_x=\rho\cos\varphi,\ \ s_y=\rho\sin\varphi,
+    =s_x - s_y\,\frac{s_x-p_{f,x}}{s_y-p_{f,y}}
+    \;\;(\equiv\texttt{xint}),
+    \qquad s_x=\rho\cos\varphi,\ s_y=\rho\sin\varphi,
     \label{eq:dedge}
 \end{equation}
-que coincide exactamente con el \texttt{xint} del rasterizador pero es suave en
-$\vect{\psi}$ (salvo la recta $s_y=p_y$, tratada como l\'imite). El Heaviside
-$\mathbf{1}\{d_{\mathrm{edge}}>0\}$ se reemplaza por una \textbf{sigmoide}
+y sustituimos el Heaviside por una \textbf{sigmoide log\'istica}
 \begin{equation}
     \boxed{\;
     \mathrm{vis}(\vect{\psi},\vect{p}_f)
-    =
-    \sigma\!\bigl(\kappa\,d_{\mathrm{edge}}\bigr)
-    =
-    \frac{1}{1+e^{-\kappa\, d_{\mathrm{edge}}(\vect{\psi},\vect{p}_f)}}
-    \;\in(0,1),
+    =\sigma\!\bigl(\kappa\,d_{\mathrm{edge}}\bigr)
+    =\frac{1}{1+e^{-\kappa\, d_{\mathrm{edge}}(\vect{\psi},\vect{p}_f)}}
+    \;\in(0,1).
     \;}
     \label{eq:sigmoid}
 \end{equation}
-donde $\kappa>0$ es el \textbf{ancho de penumbra}: la transici\'on
-sombra$\to$luz ocurre en una banda de semi-anchura $\sim 1/\kappa$ (metros) en la
-coordenada de cruce. Cuando $\kappa\to\infty$ se recupera el Heaviside. Por
-defecto $\kappa=60$ (penumbra $\sim1.7$\,cm, comparable al tama\~no de p\'ixel).
 
-\subsection{(iii) \emph{Foreshortening}: de \texorpdfstring{$\max(0,\cdot)$}{max(0,.)} a \emph{softplus}}
+\textbf{Por qu\'e esta opci\'on.} La sigmoide es (1) $C^\infty$ y \textbf{acotada}
+en $(0,1)$, id\'onea para una ``visibilidad''; (2) \textbf{mon\'otona}, de modo que
+no introduce oscilaciones esp\'urias; (3) tiende al Heaviside cuando
+$\kappa\to\infty$ (con convergencia uniforme fuera de una capa de ancho
+$\sim1/\kappa$, Prop.~\ref{prop:sigmoid}); y (4) tiene \textbf{derivada simple}
+$\sigma'=\kappa\,\sigma(1-\sigma)$. El par\'ametro $\kappa$ es el ancho de
+\emph{penumbra}: la transici\'on sombra$\to$luz ocurre en una banda de
+semi-anchura $\sim1/\kappa$ (metros). Por defecto $\kappa=60$ (penumbra
+$\sim1.7$\,cm, comparable al tama\~no de p\'ixel).
+
+%------------------------------------------------------------------------------
+\subsection{(iii) \emph{Clamps}: de \texorpdfstring{$\max(0,\cdot)$}{max(0,.)} a \emph{softplus}}
 \label{sec:softplus}
-Cada coseno $c_k$ de \eqref{eq:foreshortening} puede ser negativo (cara opuesta);
-el rasterizador aplica $[\,c_k\,]_+=\max(0,c_k)$, no derivable en $c_k=0$. Lo
-reemplazamos por la \textbf{\emph{softplus}}
+%------------------------------------------------------------------------------
+
+\textbf{C\'omo estaba.} Cada uno de los cuatro cosenos de \eqref{eq:raster-cos}
+pasa por $[\,c_k\,]_+=\max(0,c_k)$ (una cara que no ``ve'' aporta $0$).
+
+\textbf{Por qu\'e no es derivable.} $\max(0,\cdot)$ es continuo y Lipschitz, pero
+tiene un \textbf{codo} en $c_k=0$: derivadas laterales $0\neq1$
+(Prop.~\ref{prop:relu}).
+
+\textbf{Con qu\'e se reemplaza.} Por la \textbf{\emph{softplus}}
 \begin{equation}
-    \softplus_\beta(x)
-    =
-    \frac{1}{\beta}\log\!\bigl(1+e^{\beta x}\bigr),
+    \softplus_\beta(x)=\frac{1}{\beta}\log\!\bigl(1+e^{\beta x}\bigr),
     \qquad
     \softplus_\beta(x)\xrightarrow[\beta\to\infty]{}\max(0,x),
     \label{eq:softplus}
 \end{equation}
-cuya derivada es la sigmoide $\sigma(\beta x)\in(0,1)$, de modo que el codo se
-suaviza en una escala $\sim1/\beta$. El \emph{foreshortening} suave es
+aplicada a los cuatro cosenos \emph{crudos} $c_1,\dots,c_4$ (los argumentos de
+\eqref{eq:raster-cos} sin el $[\cdot]_+$):
+\begin{equation}
+    c_1=\frac{\hat{\vect n}_s\!\cdot\!(\vect{p}_l-\vect{p}_s)}{d_1},\;\;
+    c_2=\frac{\hat{\vect n}_s\!\cdot\!(\vect{p}_f-\vect{p}_s)}{d_2},\;\;
+    c_3=\frac{\hat{\vect n}_l\!\cdot\!(\vect{p}_s-\vect{p}_l)}{d_1},\;\;
+    c_4=\frac{\hat{\vect n}_f\!\cdot\!(\vect{p}_s-\vect{p}_f)}{d_2},
+    \label{eq:cos-crudos}
+\end{equation}
 \begin{equation}
     f_{\mathrm{smooth}}(\vect{\psi},\vect{p}_f)
-    =
-    \prod_{k=1}^{5}\softplus_\beta\!\bigl(c_k(\vect{\psi},\vect{p}_f)\bigr).
+    =\prod_{k=1}^{4}\softplus_\beta\!\bigl(c_k(\vect{\psi},\vect{p}_f)\bigr).
     \label{eq:f-smooth}
 \end{equation}
-Por defecto $\beta=50$ (ancho de codo $\sim0.02$). Las distancias
-$\|\cdot\|=\sqrt{\langle\cdot,\cdot\rangle}$ ya son $C^\infty$ mientras no se
-anulen (garantizado por la geometr\'ia: $\vect{p}_s\neq\vect{p}_l,\vect{p}_f$).
 
-\subsection{(iv) Ensamblado de \texorpdfstring{$g(\vect{\psi})$}{g(psi)}}
+\textbf{Por qu\'e esta opci\'on.} La softplus (1) es $C^\infty$; (2)
+$\to\max(0,\cdot)$ con \textbf{cota uniforme} $0\le\softplus_\beta-\max(0,\cdot)\le
+(\log2)/\beta$ para \emph{todo} $x$ (Prop.~\ref{prop:softplus}), lo que controla
+el sesgo del suavizado de forma expl\'icita e independiente del punto; y (3) tiene
+\textbf{derivada} exactamente la sigmoide $\softplus_\beta'=\sigma_\beta\in(0,1)$,
+lo que encadena de forma natural con el resto. El codo se suaviza en una escala
+$\sim1/\beta$; por defecto $\beta=50$ (ancho $\sim0.02$). Las distancias
+$\norm{\cdot}=\sqrt{\langle\cdot,\cdot\rangle}$ ya son $C^\infty$ mientras no se
+anulen (garantizado por $\vect{p}_s\neq\vect{p}_l,\vect{p}_f$).
+
+%------------------------------------------------------------------------------
+\subsection{(iv) Ensamblado de \texorpdfstring{$g(\vect{\psi})=A\,S+b$}{g = A S + b}}
 \label{sec:ensamble}
-Reuniendo \eqref{eq:erf-bin}, \eqref{eq:sigmoid} y \eqref{eq:f-smooth}, la tasa
-esperada en la medici\'on $q=(i,j)$ es el producto
+%------------------------------------------------------------------------------
+
+Reuniendo \eqref{eq:erf-bin}, \eqref{eq:sigmoid} y \eqref{eq:f-smooth}, con la
+ca\'ida radial \textbf{$4\pi^2$ del simulador} (\textbf{no} $8\pi^3$) y
+\textbf{cuatro} cosenos (\textbf{no} cinco), la tasa esperada en la medici\'on
+$q=(i,j)$ es el producto
 \begin{equation}
     \boxed{\;
     y_q(\vect{\psi})
     =
     \underbrace{\frac{\alpha\,G\;\mathrm{vis}(\vect{\psi},\vect{p}_{f,i})\,
                       f_{\mathrm{smooth}}(\vect{\psi},\vect{p}_{f,i})}
-                     {8\pi^3\,\|\vect{p}_c-\vect{p}_{f,i}\|^2\,
-                      \|\vect{p}_s-\vect{p}_l\|^2\,\|\vect{p}_s-\vect{p}_{f,i}\|^2}}
+                     {4\pi^2\,\norm{\vect{p}_s-\vect{p}_l}^2\,
+                      \norm{\vect{p}_s-\vect{p}_{f,i}}^2}}
                      _{\textstyle A_i(\vect{\psi})\ \text{(amplitud espacial)}}
     \;\cdot\;
     \underbrace{S_j(\vect{\psi})}_{\textstyle \text{pulso en el bin}} ,
     \;}
     \label{eq:yq-smooth}
 \end{equation}
-con $G$ una ganancia global (potencia de l\'aser $\times$ escala de conteo) y
 \begin{equation}
-    g_q(\vect{\psi}) = y_q(\vect{\psi}) + b,
-    \qquad b=0.1 .
+    g_q(\vect{\psi}) = y_q(\vect{\psi}) + b,\qquad b=0.1 .
     \label{eq:g-smooth}
 \end{equation}
-El fondo $b>0$ cumple el mismo papel que en el \emph{writeup}: mantiene $1/g_q$
-finito \textbf{sin} necesidad de un piso $\varepsilon$ artificial. Cada factor de
-\eqref{eq:yq-smooth} es $C^\infty$ en $\vect{\psi}=(\rho,\varphi,h)$, luego $g_q$
-lo es. Esto est\'a implementado en \texttt{crb\_analytic\_forward.py}
-(clase \texttt{AnalyticForwardModel}; ver \texttt{ForwardConfig} para
-$\alpha,G,b,\beta,\kappa,\tau$ y la geometr\'ia fija).
+
+\begin{remark}[Suposici\'on de \'area efectiva constante]
+\label{rem:area}
+En el simulador el \'area $A$ \emph{var\'ia por tri\'angulo}. En el forward de
+faceta \emph{puntual} no hay malla, de modo que \textbf{doblamos} ese \'area en la
+ganancia global $G$ (junto con la potencia del l\'aser y la escala de conteo) como
+un \textbf{\'area efectiva constante} de la faceta. Es una suposici\'on de
+modelado: fija la \emph{magnitud} absoluta del CRB (que por eso no es comparable
+1:1 con el rasterizador), pero no afecta la \emph{forma/orientaci\'on} de las
+elipses ni la validez de las derivadas.
+\end{remark}
+
+El fondo $b>0$ mantiene $1/g_q$ finito \textbf{sin} piso $\varepsilon$ artificial.
+Cada factor de \eqref{eq:yq-smooth} es $C^\infty$ en $\vect{\psi}=(\rho,\varphi,h)$
+(se prueba en la Sec.~\ref{sec:justificacion}), luego $g_q$ lo es. Implementado en
+\texttt{crb\_analytic\_forward.py} (clase \texttt{AnalyticForwardModel}; ver
+\texttt{ForwardConfig} para $\alpha,G,b,\beta,\kappa,\tau$ y la geometr\'ia fija).
+La posici\'on de c\'amara $\vect{p}_c$ \textbf{no} aparece: el forward es de dos
+rebotes.
 
 %==============================================================================
-\section{Derivadas cerradas por diferenciaci\'on simb\'olica}
+\section{La derivada anal\'itica (paso a paso)}
 \label{sec:derivadas}
 %==============================================================================
 
-Como $g_q=y_q+b$ y $b$ no depende de $\vect{\psi}$, se tiene
-$\partial g_q/\partial\psi_m=\partial y_q/\partial\psi_m$ (id\'entico a la ec.~10
-del \emph{writeup}). Por la estructura de producto \eqref{eq:yq-smooth}, la
-regla del producto da la \textbf{estructura} de la derivada:
+Ahora que $g_q\in C^\infty$, obtenemos $\partial g_q/\partial\rho$,
+$\partial g_q/\partial\varphi$, $\partial g_q/\partial h$ en forma cerrada. Como
+$g_q=y_q+b$ y $b$ no depende de $\vect{\psi}$,
+$\partial g_q/\partial\psi_m=\partial y_q/\partial\psi_m$.
+
+\paragraph{Paso 1: regla del producto.} Por la estructura $y_q=A_i\,S_j$ de
+\eqref{eq:yq-smooth},
 \begin{equation}
     \frac{\partial y_q}{\partial\psi_m}
-    =
-    \frac{\partial A_i}{\partial\psi_m}\,S_j
-    +
-    A_i\,\frac{\partial S_j}{\partial\psi_m},
+    =\frac{\partial A_i}{\partial\psi_m}\,S_j
+    +A_i\,\frac{\partial S_j}{\partial\psi_m},
     \qquad \psi_m\in\{\rho,\varphi,h\}.
     \label{eq:chain}
 \end{equation}
-Los bloques suaves aportan derivadas elementales bien definidas en todo el
-dominio:
+
+\paragraph{Paso 2: derivadas de los bloques.} Cada bloque suave aporta una
+derivada elemental bien definida en todo el dominio:
 \begin{align}
     \frac{\partial S_j}{\partial\psi_m}
-    &=
-    -\,\frac{\partial t_0}{\partial\psi_m}\,
+    &=-\,\frac{\partial t_0}{\partial\psi_m}\,
     \frac{1}{\tau\sqrt{2\pi}}
     \left[
         e^{-(t^{(j)}_{\mathrm{hi}}-t_0)^2/2\tau^2}
-        -
-        e^{-(t^{(j)}_{\mathrm{lo}}-t_0)^2/2\tau^2}
+        -e^{-(t^{(j)}_{\mathrm{lo}}-t_0)^2/2\tau^2}
     \right],
     \label{eq:dS}\\[4pt]
-    \frac{d}{dx}\,\softplus_\beta(x) &= \sigma(\beta x),
+    \frac{d}{dx}\,\softplus_\beta(x)&=\sigma(\beta x),
     \qquad
-    \frac{d}{dx}\,\sigma(\kappa x) = \kappa\,\sigma(\kappa x)\bigl(1-\sigma(\kappa x)\bigr),
+    \frac{d}{dx}\,\sigma(\kappa x)=\kappa\,\sigma(\kappa x)\bigl(1-\sigma(\kappa x)\bigr),
     \label{eq:dblocks}
 \end{align}
-donde \eqref{eq:dS} sale de derivar \eqref{eq:erf-bin} usando
-$\erf'(z)=\tfrac{2}{\sqrt\pi}e^{-z^2}$, y $\partial t_0/\partial\psi_m$ se obtiene
-de \eqref{eq:tof} derivando las normas. La derivada del producto de cinco
-\emph{softplus} y de las normas se propaga por la regla de la cadena.
+donde \eqref{eq:dS} sale de derivar \eqref{eq:erf-bin} con
+$\erf'(z)=\tfrac{2}{\sqrt\pi}e^{-z^2}$.
 
-En la pr\'actica \textbf{no} escribimos estas expresiones a mano: se generan de
-forma \textbf{simb\'olica} con \texttt{sympy} (an\'alogo directo al uso de
-Mathematica en el \emph{writeup}) y se compilan a \texttt{numpy}/\texttt{scipy}
-con \texttt{lambdify} para evaluaci\'on vectorizada sobre toda la rejilla
-$(i,j)$:
+\paragraph{Paso 3: derivadas geom\'etricas.} $\partial t_0/\partial\psi_m$ se
+obtiene de \eqref{eq:tof} derivando las dos normas: para $\vect r=\vect p_s-\vect
+p_\bullet$,
+\begin{equation}
+    \frac{\partial\norm{\vect r}}{\partial\psi_m}
+    =\frac{\vect r\cdot\partial_{\psi_m}\vect p_s}{\norm{\vect r}},
+    \qquad
+    \partial_\rho\vect p_s=(\cos\varphi,\sin\varphi,0),\;\;
+    \partial_\varphi\vect p_s=(-\rho\sin\varphi,\rho\cos\varphi,0),\;\;
+    \partial_h\vect p_s=(0,0,1),
+    \label{eq:dnorm}
+\end{equation}
+y las derivadas de los cosenos \eqref{eq:cos-crudos} y de $\mathrm{vis}$ salen por
+regla de la cadena con \eqref{eq:dblocks} y \eqref{eq:dnorm}. La derivada del
+producto de cuatro \emph{softplus} se propaga con la regla del producto.
+
+\paragraph{Paso 4: generaci\'on simb\'olica.} En la pr\'actica \textbf{no}
+escribimos esto a mano: se genera con \texttt{sympy} (\texttt{sp.diff}, an\'alogo
+directo al Mathematica del \emph{writeup}) y se compila a
+\texttt{numpy}/\texttt{scipy} con \texttt{lambdify} para evaluaci\'on vectorizada
+sobre toda la rejilla $(i,j)$:
 \begin{lstlisting}
 # crb_analytic_forward.py  (construccion simbolica, resumida)
 rho, phi, h = sp.symbols("rho phi h", real=True)
 ps = sp.Matrix([rho*sp.cos(phi), rho*sp.sin(phi), h])
 ns = sp.Matrix([-sp.cos(phi), -sp.sin(phi), 0])
-d_pl, d_pf = (ps-pl).norm(), (ps-pf).norm()          # distancias C-inf
-softplus = lambda x: sp.log(1 + sp.exp(beta*x))/beta  # (iii)
-f_fore = softplus(c1)*softplus(c2)*softplus(c3)*softplus(c4)*softplus(c5)
-d_edge = sx - sy*(sx-px)/(sy-py)                       # (ii)
+d1, d2 = (ps-pl).norm(), (ps-pf).norm()               # dos rebotes: C-inf
+softplus = lambda x: sp.log(1 + sp.exp(beta*x))/beta   # (iii)
+c1 = ns.dot(pl-ps)/d1;  c2 = ns.dot(pf-ps)/d2          # cuatro cosenos (dot1..dot4)
+c3 = nl.dot(ps-pl)/d1;  c4 = nf.dot(ps-pf)/d2
+f_fore = softplus(c1)*softplus(c2)*softplus(c3)*softplus(c4)
+d_edge = sx - sy*(sx-px)/(sy-py)                        # (ii)
 vis     = 1/(1 + sp.exp(-kappa*d_edge))
-t0 = (d_pl + d_pf)/c                                   # (i)
+t0 = (d1 + d2)/c                                        # (i)
 S  = (sp.erf((thi-t0)/(sp.sqrt(2)*tau))
       - sp.erf((tlo-t0)/(sp.sqrt(2)*tau)))/2
-y  = alpha*gain*vis*f_fore/(8*sp.pi**3*d_cf**2*d_pl**2*d_pf**2) * S
+y  = alpha*gain*vis*f_fore/(4*sp.pi**2*d1**2*d2**2) * S  # 4*pi^2, NO 8*pi^3
 dy_drho = sp.diff(y, rho)      # derivadas CERRADAS
 dy_dphi = sp.diff(y, phi)
 dy_dh   = sp.diff(y, h)
@@ -418,42 +506,491 @@ Las funciones expuestas son \texttt{analytic\_forward\_g(psi,\dots)},
 \texttt{analytic\_jacobian\_g(psi,\dots)} y \texttt{compute\_crb\_analytic(psi,\dots)}.
 
 %==============================================================================
+\section{Justificaci\'on matem\'atica (paso a paso)}
+\label{sec:justificacion}
+%==============================================================================
+
+Esta secci\'on desarrolla, con el aparato del an\'alisis real y \textbf{paso a
+paso}, \emph{por qu\'e} el forward duro del simulador
+\eqref{eq:raster-int}--\eqref{eq:xint} no admite un gradiente cl\'asico
+informativo y \emph{c\'omo} la construcci\'on de la Sec.~\ref{sec:construccion}
+produce una funci\'on $C^\infty$ con derivadas exactas. Cada enunciado se refiere a
+los bloques \emph{del simulador} (los cuatro cosenos, la \texttt{xint} real, el
+\texttt{ceil}).
+
+%------------------------------------------------------------------------------
+\subsection*{Paso 0. Preliminares y el forward duro}
+\label{sec:prelim}
+%------------------------------------------------------------------------------
+
+Sea $\vect{\psi}=(\rho,\varphi,h)$ (o $(\rho,\varphi)$ fijando $h$) en el dominio
+de par\'ametros
+\begin{equation}
+    \Theta=\bigl\{(\rho,\varphi,h)\in\R^3 : \rho>0,\ \varphi\in(0,\pi),\ h>0\bigr\},
+    \label{eq:Theta}
+\end{equation}
+un \textbf{abierto} de $\R^3$. La faceta es
+$\vect{p}_s(\vect{\psi})=(\rho\cos\varphi,\rho\sin\varphi,h)$; el l\'aser
+$\vect{p}_l$ y los p\'ixeles de piso $\{\vect{p}_{f,i}\}_{i=1}^{P}$ son
+\emph{fijos}. El espacio de mediciones es $\R^N$, $q=(i,j)$ con $i$ p\'ixel y $j$
+bin $[t_{j-1},t_j]$, $t_j=j\,\Delta t$.
+
+\begin{assumption}[No degeneraci\'on geom\'etrica]\label{as:geom}
+Para todo $\vect{\psi}\in\Theta$ y todo p\'ixel $i$:
+(a) $\vect{p}_s(\vect{\psi})\neq\vect{p}_l$ y
+$\vect{p}_s(\vect{\psi})\neq\vect{p}_{f,i}$ (las dos distancias $d_1,d_2$ son
+estrictamente positivas);
+(b) $s_y(\vect{\psi})\neq p_{f,y,i}$, de modo que la coordenada de cruce
+\eqref{eq:xint} est\'a bien definida. Si hiciera falta, restringimos $\Theta$ a
+un abierto donde (a)--(b) se cumplan.
+\end{assumption}
+
+Con $d_i(\vect{\psi})=\norm{\vect{p}_s-\vect{p}_l}+\norm{\vect{p}_s-\vect{p}_{f,i}}$
+el camino de dos rebotes y $t_{0,i}(\vect{\psi})=d_i(\vect{\psi})/c$, el forward
+\textbf{duro} del simulador se escribe formalmente
+\begin{equation}
+    y^{\mathrm{hard}}_q(\vect{\psi})
+    =A_i(\vect{\psi})\;
+    \mathbf{1}_{[t_{j-1},t_j)}\!\bigl(t_{0,i}(\vect{\psi})\bigr)\;
+    \mathbf{1}_{\{e_i(\vect{\psi})>0\}},
+    \qquad g^{\mathrm{hard}}_q=y^{\mathrm{hard}}_q+b,
+    \label{eq:hard}
+\end{equation}
+donde $A_i\ge0$ es la amplitud radiom\'etrica (producto de \textbf{cuatro}
+cosenos con \emph{clamp} y ca\'ida $1/(4\pi^2 d_1^2 d_2^2)$), $e_i=\texttt{xint}$
+la funci\'on de borde \eqref{eq:xint}, y $\mathbf 1_S$ la indicatriz. El primer
+indicador codifica el \texttt{ceil}; el segundo, el ocultamiento; los cuatro
+\emph{clamps} viven dentro de $A_i$. \'Estas son las tres operaciones de la
+Obs.~\ref{rem:tres}.
+
+%------------------------------------------------------------------------------
+\subsection*{Paso 1. Los bloques ``suaves'' del simulador ya son \texorpdfstring{$C^\infty$}{C-inf}}
+\label{sec:reg-suaves}
+%------------------------------------------------------------------------------
+
+\begin{lemma}[La norma eucl\'idea es $C^\infty$ fuera del origen]\label{lem:norm}
+$\norm{\cdot}:\R^n\setminus\{0\}\to\R$, $x\mapsto\sqrt{x\cdot x}$, es $C^\infty$
+(de hecho real-anal\'itica).
+\end{lemma}
+\begin{proof}
+$x\mapsto x\cdot x$ es un polinomio ($C^\infty$) y positivo en
+$\R^n\setminus\{0\}$; $\sqrt{\cdot}$ es $C^\infty$ en $(0,\infty)$; la
+composici\'on es $C^\infty$.
+\end{proof}
+
+\begin{proposition}[Distancias y tiempo de vuelo $C^\infty$]\label{prop:dist}
+Bajo la Hip.~\ref{as:geom}(a), para cada $i$ las funciones $d_1,d_2,d_i,t_{0,i}$
+son $C^\infty$ en $\Theta$.
+\end{proposition}
+\begin{proof}
+Cada componente de $\vect{p}_s=(\rho\cos\varphi,\rho\sin\varphi,h)$ es
+producto/composici\'on de $\rho,\cos,\sin$ (real-anal\'iticas), luego
+$\vect{p}_s\in C^\infty$. Las traslaciones por $\vect{p}_l,\vect{p}_{f,i}$ son
+afines. Por la Hip.~\ref{as:geom}(a) los argumentos no se anulan, as\'i que el
+Lema~\ref{lem:norm} y la cadena dan $\norm{\vect{p}_s-\vect{p}_l},
+\norm{\vect{p}_s-\vect{p}_{f,i}}\in C^\infty$; su suma $d_i$ y $t_{0,i}=d_i/c$
+tambi\'en.
+\end{proof}
+
+\begin{proposition}[Los cuatro cosenos son $C^\infty$]\label{prop:cos}
+Cada coseno crudo $c_k$ de \eqref{eq:cos-crudos},
+$k=1,\dots,4$, es $C^\infty$ en $\Theta$.
+\end{proposition}
+\begin{proof}
+La normal $\hat{\vect n}_s=(-\cos\varphi,-\sin\varphi,0)$ es $C^\infty$;
+$\hat{\vect n}_l,\hat{\vect n}_f$ son constantes. Los vectores $\vect p_l-\vect
+p_s$, $\vect p_f-\vect p_s$ (y sus opuestos) son $C^\infty$; el numerador
+$\hat{\vect n}\!\cdot\!\vect u$ es bilineal en entradas $C^\infty$; el denominador
+$d_1$ o $d_2$ es $C^\infty$ y no nulo (Hip.~\ref{as:geom}(a),
+Prop.~\ref{prop:dist}). El cociente con denominador no nulo es $C^\infty$.
+\end{proof}
+
+As\'i, la amplitud $A_i$ \emph{sin} los \emph{clamps} y sin la indicatriz de
+ocultamiento ya ser\'ia $C^\infty$ (la ca\'ida $1/(4\pi^2 d_1^2 d_2^2)$ es
+rec\'iproca de un producto de normas $C^\infty$ positivas). \textbf{Toda} la no
+diferenciabilidad viene de los tres operadores duros de \eqref{eq:hard}.
+
+%------------------------------------------------------------------------------
+\subsection*{Paso 2. Diagn\'ostico de la no diferenciabilidad}
+\label{sec:diagnostico}
+%------------------------------------------------------------------------------
+
+\subsubsection*{(a) Los indicadores \texttt{ceil} y \texttt{xint}$>0$: discontinuidad de salto}
+
+\begin{theorem}[Superficie de salto v\'ia funci\'on impl\'icita]\label{thm:ift}
+Sea $\phi\in C^1(\Theta)$ (p.\,ej.\ $\phi=t_{0,i}$ para el binning, o
+$\phi=e_i$ para el ocultamiento) y $a\in\R$ con
+$Z_a:=\{\phi=a\}\neq\varnothing$. Si $\nabla\phi(\vect{\psi}^\ast)\neq\vect 0$ en
+$\vect{\psi}^\ast\in Z_a$, entonces cerca de $\vect{\psi}^\ast$ el conjunto $Z_a$
+es una hipersuperficie $C^1$ (codimensi\'on $1$), la funci\'on
+$\vect{\psi}\mapsto\mathbf{1}_{\{\phi>a\}}$ es \textbf{discontinua} en cada punto
+de $Z_a$ y \textbf{localmente constante} (gradiente cl\'asico nulo) en
+$\Theta\setminus\phi^{-1}(\{a\})$.
+\end{theorem}
+\begin{proof}
+Alguna $\partial_{\psi_r}\phi(\vect{\psi}^\ast)\neq0$; el \textbf{Teorema de la
+funci\'on impl\'icita} despeja $\psi_r$ como funci\'on $C^1$ de las dem\'as cerca de
+$\vect{\psi}^\ast$, cuyo grafo es $Z_a$: una hipersuperficie $C^1$. Por
+continuidad, $\{\phi>a\}$ y $\{\phi<a\}$ son abiertos donde
+$\mathbf 1_{\{\phi>a\}}$ vale $1$ o $0$ (localmente constante, gradiente $\vect
+0$). En $Z_a$ todo entorno contiene puntos de ambos lados ($\nabla\phi\neq0$),
+luego $\mathbf 1_{\{\phi>a\}}$ salta.
+\end{proof}
+
+Aplicado a \eqref{eq:hard}: el binning $\mathbf
+1_{[t_{j-1},t_j)}(t_{0,i}(\vect{\psi}))$ salta a trav\'es de las
+\textbf{isocronas} $\{t_{0,i}=t_{j-1}\}$, $\{t_{0,i}=t_j\}$; y el ocultamiento
+$\mathbf 1_{\{e_i>0\}}$ salta a trav\'es de la \textbf{frontera de sombra}
+$\{e_i=0\}$ (la $\texttt{xint}=0$ real). Entre saltos, ambos son localmente
+constantes: la patolog\'ia ``\textbf{meseta plana} ($\nabla=\vect0$) $+$
+\textbf{salto}'', que borra la informaci\'on de primer orden salvo en un conjunto
+de medida nula donde ni existe la derivada.
+
+\subsubsection*{(b) \emph{Clamp} $\max(0,\cdot)$: convexo, Lipschitz, no derivable en $0$}
+
+\begin{proposition}[Regularidad de $\max(0,\cdot)$]\label{prop:relu}
+$r(x)=\max(0,x)$ es convexa y $1$-Lipschitz en $\R$, derivable en
+$\R\setminus\{0\}$ con $r'(x)=\mathbf{1}_{\{x>0\}}$, y \emph{no} derivable en $0$:
+$r'_-(0)=0\neq1=r'_+(0)$.
+\end{proposition}
+\begin{proof}
+$r=\max\{0,x\}$ es m\'aximo puntual de afines, luego convexo; tiene pendiente $0$
+o $1$, luego $1$-Lipschitz. Para $x\neq0$ coincide localmente con $0$ o $x$. En
+$0$: $r'_+(0)=\lim_{t\downarrow0}t/t=1$, $r'_-(0)=\lim_{t\uparrow0}0/t=0$; difieren.
+\end{proof}
+
+\begin{theorem}[Rademacher]\label{thm:rademacher}
+Si $f:\R^n\to\R$ es localmente Lipschitz, es diferenciable en casi todo punto
+(medida de Lebesgue).
+\end{theorem}
+
+La Prop.~\ref{prop:relu} y el Teorema~\ref{thm:rademacher} sit\'uan los cuatro
+\emph{clamps} en ``Lipschitz $\Rightarrow$ derivable c.t.p.'': su \'unico defecto
+es un conjunto \emph{numerable} de codos. En cambio los indicadores de
+\eqref{eq:hard} \textbf{no son Lipschitz} (saltan): est\'an \emph{fuera} de
+Rademacher, son \textbf{discontinuos}.
+
+\subsubsection*{(c) Derivada distribucional y fracaso de las diferencias finitas}
+
+En sentido distribucional $H'=\delta$ en $\mathcal{D}'(\R)$: la informaci\'on de
+primer orden del salto se concentra en un punto de medida nula, mientras la
+derivada cl\'asica es $0$ c.t.p. De ah\'i que una diferencia finita sobre un
+escal\'on \textbf{no converja}.
+
+\begin{proposition}[Inconsistencia de la diferencia finita en un salto]\label{prop:fd}
+Sea $f(x)=A\,\mathbf{1}_{\{x>0\}}$ con $A\neq0$ y la diferencia central
+$D_\delta f(x_0)=\frac{f(x_0+\delta)-f(x_0-\delta)}{2\delta}$. Entonces
+$D_\delta f(x_0)=A/(2\delta)$ si $\abs{x_0}<\delta$ y $0$ si $\abs{x_0}>\delta$.
+En $x_0=0$, $D_\delta f(0)=A/(2\delta)\to\pm\infty$ cuando $\delta\to0^+$; el
+l\'imite no existe en el salto y \emph{depende del paso} $\delta$.
+\end{proposition}
+\begin{proof}
+Si $\abs{x_0}>\delta$, $x_0\pm\delta$ caen del mismo lado de $0$, luego
+$D_\delta f=0$. Si $\abs{x_0}<\delta$, $x_0-\delta<0<x_0+\delta$ y
+$D_\delta f=A/(2\delta)$. Los l\'imites son inmediatos.
+\end{proof}
+
+\'Esta es la raz\'on de fondo por la que el pipeline con FD debe afinar
+$\delta_\rho,\delta_\varphi,\delta_h$: sobre las mesetas obtiene $0$; cerca de una
+isocrona o de la frontera $\texttt{xint}=0$, un valor $\propto1/\delta$.
+
+%------------------------------------------------------------------------------
+\subsection*{Paso 3. Herramientas de an\'alisis real}
+\label{sec:herramientas}
+%------------------------------------------------------------------------------
+
+\begin{lemma}[Convergencia dominada, TCD]\label{lem:tcd}
+Si $f_n\to f$ en c.t.p.\ y $\abs{f_n}\le G\in L^1(\mu)$, entonces $f\in L^1$ y
+$\int f_n\to\int f$.
+\end{lemma}
+
+\begin{theorem}[Derivaci\'on bajo la integral, Leibniz v\'ia TCD]\label{thm:leibniz}
+Sea $\Theta\subseteq\R^m$ abierto y $F:\Theta\times X\to\R$ con (i)
+$F(\vect{\psi},\cdot)\in L^1$; (ii) $\vect{\psi}\mapsto F(\vect{\psi},t)$
+derivable en $\psi_m$ para c.t.\ $t$; (iii) existe $G\in L^1$ y un entorno $U$ de
+$\vect{\psi}_0$ con $\abs{\partial_{\psi_m}F(\vect{\psi},t)}\le G(t)$ en $U$.
+Entonces $\Phi(\vect{\psi})=\int_X F\,d\mu$ es derivable en $\vect{\psi}_0$ y
+$\partial_{\psi_m}\Phi=\int_X\partial_{\psi_m}F\,d\mu$; si $\partial_{\psi_m}F$ es
+continua en $\vect{\psi}$, $\Phi\in C^1$.
+\end{theorem}
+\begin{proof}[Idea]
+Al cociente incremental se aplica el TVM,
+$\frac{F(\vect{\psi}_0+h_n\vect e_m,t)-F(\vect{\psi}_0,t)}{h_n}
+=\partial_{\psi_m}F(\vect{\xi}_n,t)$, dominado por $G$ (iii); el
+Lema~\ref{lem:tcd} pasa el l\'imite bajo la integral.
+\end{proof}
+
+\begin{theorem}[\emph{Mollifiers} / aproximaci\'on de la identidad]\label{thm:mollifier}
+Sea $\eta\in C_c^\infty(\R^n)$, $\eta\ge0$, $\int\eta=1$,
+$\eta_\varepsilon(x)=\varepsilon^{-n}\eta(x/\varepsilon)$. Para $f\in
+L^1_{loc}$: (a) $f*\eta_\varepsilon\in C^\infty$ y
+$\partial^\alpha(f*\eta_\varepsilon)=f*\partial^\alpha\eta_\varepsilon$;
+(b) $f*\eta_\varepsilon\to f$ en $L^1_{loc}$ y en c.t.\ punto;
+(c) si $f$ es continua en un compacto $K$, la convergencia es \textbf{uniforme}
+en $K$.
+\end{theorem}
+\begin{proof}[Idea]
+(a) los cocientes incrementales derivan sobre $\eta_\varepsilon\in C_c^\infty$ e
+intercambian con la integral por el Teorema~\ref{thm:leibniz}. (b)--(c) por
+$\int\eta_\varepsilon=1$ y concentraci\'on del soporte, usando continuidad $L^1$
+de las traslaciones.
+\end{proof}
+
+\begin{remark}[N\'ucleo gaussiano]
+El n\'ucleo $\rho_\tau(t)=(\tau\sqrt{2\pi})^{-1}e^{-t^2/2\tau^2}$ no tiene soporte
+compacto pero es de Schwartz y una aproximaci\'on de la identidad
+($\rho_\tau\ge0$, $\int\rho_\tau=1$); valen (a)--(c) del
+Teorema~\ref{thm:mollifier} (la dominaci\'on usa el decaimiento gaussiano). Es el
+n\'ucleo del pulso \eqref{eq:pulse}.
+\end{remark}
+
+\begin{lemma}[$\erf$ es real-anal\'itica]\label{lem:erf}
+$\erf(x)=\frac{2}{\sqrt\pi}\int_0^x e^{-u^2}du\in C^\infty(\R)$ (real-anal\'itica)
+y $\erf'(x)=\frac{2}{\sqrt\pi}e^{-x^2}$.
+\end{lemma}
+\begin{proof}
+$u\mapsto e^{-u^2}$ es entero; por el TFC $\erf'=\frac{2}{\sqrt\pi}e^{-x^2}\in
+C^\infty$, y por inducci\'on $\erf\in C^\infty$; la analiticidad, integrando la
+serie de $e^{-u^2}$ t\'ermino a t\'ermino.
+\end{proof}
+
+%------------------------------------------------------------------------------
+\subsection*{Paso 4. Los tres reemplazos son $C^\infty$ (y ensamblado)}
+\label{sec:construccion-just}
+%------------------------------------------------------------------------------
+
+\subsubsection*{(i) Pulso: energ\'ia por bin en $C^\infty$}
+
+El impulso duro es la masa $\delta_{t_{0,i}(\vect{\psi})}$; convolucionada con
+$\rho_\tau$ da la densidad $C^\infty$ y la energ\'ia por bin \eqref{eq:erf-bin},
+\begin{equation}
+    S_{ij}(\vect{\psi})
+    =\int_{t_{j-1}}^{t_j}\rho_\tau\!\bigl(t-t_{0,i}(\vect{\psi})\bigr)\,dt
+    =\tfrac12\!\left[
+        \erf\!\Bigl(\tfrac{t_j-t_{0,i}}{\sqrt2\,\tau}\Bigr)
+        -\erf\!\Bigl(\tfrac{t_{j-1}-t_{0,i}}{\sqrt2\,\tau}\Bigr)
+    \right].
+    \label{eq:Sij}
+\end{equation}
+
+\begin{proposition}[$S_{ij}\in C^\infty$ y su derivada]\label{prop:Sij}
+Bajo la Hip.~\ref{as:geom}(a), $S_{ij}\in C^\infty(\Theta)$ y
+\begin{equation}
+    \frac{\partial S_{ij}}{\partial\psi_m}
+    =-\,\frac{\partial t_{0,i}}{\partial\psi_m}\,
+    \frac{1}{\tau\sqrt{2\pi}}
+    \left[
+        e^{-(t_j-t_{0,i})^2/2\tau^2}
+        - e^{-(t_{j-1}-t_{0,i})^2/2\tau^2}
+    \right].
+    \label{eq:dSij}
+\end{equation}
+\end{proposition}
+\begin{proof}
+\emph{Composici\'on.} $t_{0,i}\in C^\infty$ (Prop.~\ref{prop:dist});
+$z\mapsto(t_k-z)/(\sqrt2\tau)$ es af\'in; $\erf\in C^\infty$
+(Lema~\ref{lem:erf}); luego $S_{ij}\in C^\infty$, y \eqref{eq:dSij} es la cadena
+con $\erf'(x)=\frac{2}{\sqrt\pi}e^{-x^2}$ y el factor
+$\frac{2}{\sqrt\pi}\cdot\frac12\cdot\frac{1}{\sqrt2\tau}=\frac{1}{\tau\sqrt{2\pi}}$.
+\emph{Alternativa Leibniz+TCD:} con $F=\mathbf 1_{[t_{j-1},t_j]}\rho_\tau(t-t_{0,i})$,
+$\abs{\partial_{\psi_m}F}$ est\'a dominada en un entorno compacto de
+$\vect{\psi}_0$ por una envolvente gaussiana integrable, y el
+Teorema~\ref{thm:leibniz} justifica derivar bajo la integral.
+\end{proof}
+
+\subsubsection*{(ii) Ocultamiento suave: sigmoide}
+
+\begin{proposition}[Sigmoide]\label{prop:sigmoid}
+$\sigma_\kappa(x)=(1+e^{-\kappa x})^{-1}\in C^\infty(\R)$;
+$\sigma_\kappa'=\kappa\,\sigma_\kappa(1-\sigma_\kappa)$;
+$\sigma_\kappa\to H$ para $x\neq0$; y para todo $\eta>0$,
+$\sup_{\abs{x}\ge\eta}\abs{\sigma_\kappa(x)-H(x)}=\frac{1}{1+e^{\kappa\eta}}\le
+e^{-\kappa\eta}\to0$ (convergencia uniforme fuera de una capa de ancho
+$\sim1/\kappa$).
+\end{proposition}
+\begin{proof}
+$1+e^{-\kappa x}>0$ es $C^\infty$, su rec\'iproca tambi\'en; la f\'ormula de
+$\sigma_\kappa'$ es directa. Para $x\ge\eta$,
+$1-\sigma_\kappa(x)=\frac{e^{-\kappa x}}{1+e^{-\kappa x}}\le e^{-\kappa\eta}$; por
+simetr\'ia $\sigma_\kappa(x)\le e^{-\kappa\eta}$ para $x\le-\eta$.
+\end{proof}
+
+\subsubsection*{(iii) \emph{Foreshortening} suave: softplus con cota uniforme}
+
+\begin{proposition}[Softplus]\label{prop:softplus}
+$\softplus_\beta(x)=\beta^{-1}\log(1+e^{\beta x})\in C^\infty(\R)$,
+$\softplus_\beta'=\sigma_\beta\to H$, y
+\begin{equation}
+    0\ \le\ \softplus_\beta(x)-\max(0,x)\ \le\ \frac{\log 2}{\beta}
+    \qquad\forall x\in\R.
+    \label{eq:sp-bound}
+\end{equation}
+\end{proposition}
+\begin{proof}
+$1+e^{\beta x}>0$ y $\log\in C^\infty(0,\infty)$, luego $\softplus_\beta\in
+C^\infty$ con derivada $\frac{e^{\beta x}}{1+e^{\beta x}}=\sigma_\beta$. Si
+$x\ge0$: $\softplus_\beta(x)-x=\beta^{-1}\log(e^{-\beta x}+1)\in(0,\frac{\log2}{\beta}]$;
+si $x<0$: $\softplus_\beta(x)=\beta^{-1}\log(1+e^{\beta x})\in(0,\frac{\log2}{\beta})$.
+El m\'aximo se alcanza en $x=0$.
+\end{proof}
+
+\subsubsection*{Ensamblado}
+
+\begin{theorem}[El forward suave del simulador es $C^\infty$]\label{thm:g-smooth}
+Bajo la Hip.~\ref{as:geom}, para $\tau,\kappa,\beta>0$ fijos, la tasa
+\begin{equation}
+    g^{\tau,\kappa,\beta}_q(\vect{\psi})
+    =b+\frac{\alpha\,G\,
+        \sigma_\kappa\!\bigl(e_i(\vect{\psi})\bigr)\,
+        \prod_{k=1}^{4}\softplus_\beta\!\bigl(c_k(\vect{\psi})\bigr)}
+        {4\pi^2\,
+         \norm{\vect{p}_s-\vect{p}_l}^2\,\norm{\vect{p}_s-\vect{p}_{f,i}}^2}\;
+    S_{ij}(\vect{\psi})
+    \label{eq:g-smooth-def}
+\end{equation}
+pertenece a $C^\infty(\Theta)$ para cada $q=(i,j)$.
+\end{theorem}
+\begin{proof}
+$e_i\in C^\infty$ (cociente con denominador $s_y-p_{f,y,i}\neq0$,
+Hip.~\ref{as:geom}(b)), luego $\sigma_\kappa\circ e_i\in C^\infty$
+(Prop.~\ref{prop:sigmoid}); $c_k\in C^\infty$ (Prop.~\ref{prop:cos}) da
+$\softplus_\beta\circ c_k\in C^\infty$ (Prop.~\ref{prop:softplus}); el producto de
+los \textbf{cuatro} es $C^\infty$. El denominador $4\pi^2 d_1^2 d_2^2$ es producto
+de normas $C^\infty$ positivas (Lema~\ref{lem:norm}, Hip.~\ref{as:geom}(a)),
+rec\'iproca $C^\infty$. $S_{ij}\in C^\infty$ (Prop.~\ref{prop:Sij}). Productos y
+sumas finitas de $C^\infty$ son $C^\infty$; sumar $b$ no altera la clase.
+\end{proof}
+
+%------------------------------------------------------------------------------
+\subsection*{Paso 5. Regularidad del peso de Poisson, la Fisher y el CRB}
+\label{sec:reg-fisher}
+%------------------------------------------------------------------------------
+
+\begin{corollary}[Peso $1/g$ e informaci\'on de Fisher $C^\infty$]\label{cor:fisher}
+Como $g^{\tau,\kappa,\beta}_q\ge b>0$ en $\Theta$, $1/g_q\in C^\infty$ y
+$\matr{I}(\vect{\psi})=\sum_{q=1}^{N}\frac{1}{g_q}\,\nabla g_q\,\nabla g_q^{\mathsf T}$
+tiene entradas $C^\infty(\Theta)$.
+\end{corollary}
+\begin{proof}
+$u\mapsto1/u$ es $C^\infty$ en $[b,\infty)$; como $g_q\in[b,\infty)$ y $g_q\in
+C^\infty$ (Teorema~\ref{thm:g-smooth}), $1/g_q\in C^\infty$. Cada entrada de
+$\matr{I}$ es suma finita de productos de funciones $C^\infty$.
+\end{proof}
+
+\begin{proposition}[El CRB es $C^\infty$ donde $\matr{I}\succ0$]\label{prop:crb-smooth}
+En $\Theta_+=\{\matr{I}\succ0\}$, $\vect{\psi}\mapsto\matr{I}^{-1}$ es $C^\infty$;
+en particular $\mathrm{CRB}=\matr{I}^{-1}$ y las varianzas
+$\sigma_{\psi_m}^2=[\matr{I}^{-1}]_{mm}$ son $C^\infty$.
+\end{proposition}
+\begin{proof}
+La inversi\'on $\mathrm{inv}:\mathrm{GL}(p)\to\mathrm{GL}(p)$ es $C^\infty$ (Cramer:
+cociente de polinomios con $\det\neq0$). En $\Theta_+$, $\matr{I}$ es
+sim\'etrica definida positiva, luego invertible; compuesta con $\matr{I}\in
+C^\infty$ (Cor.~\ref{cor:fisher}) da $\matr{I}^{-1}\in C^\infty$.
+\end{proof}
+
+\begin{remark}[El papel de $b>0$]
+Garantiza $g_q\ge b$ \emph{uniformemente}, de modo que $1/g_q$ y sus derivadas
+son suaves y acotadas \textbf{incluso donde $y_q=0$}. No hace falta piso
+$\varepsilon$ ni l\'imites $g\to0$.
+\end{remark}
+
+%------------------------------------------------------------------------------
+\subsection*{Paso 6. Consistencia con el modelo duro y control de error}
+\label{sec:consistencia}
+%------------------------------------------------------------------------------
+
+\begin{proposition}[Convergencia al forward duro del simulador]\label{prop:consistencia}
+Fijado $\vect{\psi}\in\Theta$ con $t_{0,i}(\vect{\psi})\notin\{t_{j-1},t_j\}$ (no
+sobre isocrona) y $e_i(\vect{\psi})\neq0$ (fuera de la frontera $\texttt{xint}=0$)
+para todo $i$, se cumple, cuando $\tau\to0^+,\kappa\to\infty,\beta\to\infty$,
+$g^{\tau,\kappa,\beta}_q(\vect{\psi})\to g^{\mathrm{hard}}_q(\vect{\psi})$. La
+convergencia es puntual en c.t.\ $\vect{\psi}$ (el conjunto excluido, uni\'on
+finita de isocronas y fronteras --- hipersuperficies por el
+Teorema~\ref{thm:ift} --- tiene medida nula).
+\end{proposition}
+\begin{proof}[Idea]
+$\softplus_\beta(c_k)\to\max(0,c_k)$ uniformemente (cota $\log2/\beta$,
+Prop.~\ref{prop:softplus}); $\sigma_\kappa(e_i)\to\mathbf 1_{\{e_i>0\}}$ para
+$e_i\neq0$ (Prop.~\ref{prop:sigmoid}); y $S_{ij}\to\mathbf
+1_{[t_{j-1},t_j)}(t_{0,i})$ cuando $\tau\to0^+$ si $t_{0,i}$ no es extremo del bin
+(Teorema~\ref{thm:mollifier}). El producto de los l\'imites es
+$g^{\mathrm{hard}}_q$.
+\end{proof}
+
+\paragraph{Cotas de error.} El sesgo de cada suavizado est\'a controlado: los
+\emph{clamps} por $\log2/\beta$ (uniforme, Prop.~\ref{prop:softplus}); el
+ocultamiento por una capa $\sim1/\kappa$ con cola $e^{-\kappa\eta}$
+(Prop.~\ref{prop:sigmoid}); el pulso por su ancho $\tau$ (energ\'ia repartida en
+bins vecinos en escala $\tau$).
+
+\begin{remark}[No es una aproximaci\'on num\'erica]
+Mantener $\tau>0$ finito es el \emph{modelo f\'isico} del pulso real (anchura
+temporal no nula). Por tanto $g^{\tau,\kappa,\beta}$ es un \textbf{modelo exacto}
+con \textbf{derivada exacta} \eqref{eq:dSij}, no una diferencia finita de un
+modelo idealizado. El l\'imite duro $\tau\to0$ es la idealizaci\'on.
+\end{remark}
+
+%------------------------------------------------------------------------------
+\subsection*{Paso 7. Por qu\'e no se ``deriva el modelo duro''}
+\label{sec:intercambio}
+%------------------------------------------------------------------------------
+
+\begin{theorem}[Derivada del l\'imite bajo convergencia uniforme de las derivadas]\label{thm:uniforme}
+Si $f_n:I\to\R$ derivables, $f_n\to f$ puntualmente y $f_n'\to\varphi$
+\textbf{uniformemente}, entonces $f'=\varphi$, i.e.\ $\lim f_n'=(\lim f_n)'$.
+\end{theorem}
+
+\begin{remark}[Aplicaci\'on y su l\'imite]
+El Teorema~\ref{thm:uniforme} \emph{s\'i} legitima derivar
+$g^{\tau,\kappa,\beta}$ para cada terna fija de suavizado (es lo que hacemos). Lo
+que \textbf{no} puede hacerse es intercambiar el l\'imite duro con la derivada:
+cerca de una isocrona o de $\texttt{xint}=0$, las derivadas no convergen
+uniformemente cuando $\tau\to0,\kappa\to\infty$ (por \eqref{eq:dSij} el pico
+gaussiano escala $\sim1/\tau$; por la Prop.~\ref{prop:fd} la secante escala
+$\sim1/\delta$). La hip\'otesis del Teorema~\ref{thm:uniforme} falla: no hay
+derivada cl\'asica del modelo duro que recuperar. \'Esa es la justificaci\'on
+rigurosa de \emph{mantener} $\tau,\kappa,\beta$ finitos y derivar el modelo suave.
+\end{remark}
+
+\paragraph{Cierre.} El Teorema~\ref{thm:g-smooth} y las
+Prop.~\ref{prop:Sij}--\ref{prop:softplus} garantizan que
+$g^{\tau,\kappa,\beta}_q$ tiene \textbf{derivadas cerradas de todo orden}, por
+composici\'on de $\erf'$, $\sigma'$, $\softplus'$ y de las distancias/cosenos del
+simulador. Es exactamente lo que calcula \texttt{sympy}
+(Sec.~\ref{sec:derivadas}) y lo que valida el chequeo anal\'itico-vs-FD
+(Sec.~\ref{sec:validacion}). Por contraste (Paso~2), aplicar diferencias finitas
+al modelo \emph{duro} tropieza con la Prop.~\ref{prop:fd}.
+
+%==============================================================================
 \section{Fisher de Poisson y CRB}
 \label{sec:fisher}
 %==============================================================================
 
 Con el Jacobiano cerrado $\matr{J}\in\R^{N\times p}$
-($N=$\,\#mediciones, $p\in\{2,3\}$) cuyas columnas son
-$\partial\vect{g}/\partial\rho$, $\partial\vect{g}/\partial\varphi$ (y
-$\partial\vect{g}/\partial h$), la matriz de informaci\'on de Fisher de Poisson
-es id\'entica a la del \emph{writeup} (ec.~9),
+($N=$\,\#mediciones, $p\in\{2,3\}$), la informaci\'on de Fisher de Poisson es
+(estructura del \emph{writeup}, Obs.~\ref{rem:writeup})
 \begin{equation}
     I_{mk}(\vect{\psi})
-    =
-    \sum_{q=1}^{N}\frac{1}{g_q(\vect{\psi})}
-    \frac{\partial g_q}{\partial\psi_m}
-    \frac{\partial g_q}{\partial\psi_k}
-    \qquad\Longleftrightarrow\qquad
-    \matr{I}
-    =
-    \matr{J}^{\mathsf T}\diag\!\bigl(1/\vect{g}\bigr)\,\matr{J},
+    =\sum_{q=1}^{N}\frac{1}{g_q(\vect{\psi})}
+    \frac{\partial g_q}{\partial\psi_m}\frac{\partial g_q}{\partial\psi_k}
+    \quad\Longleftrightarrow\quad
+    \matr{I}=\matr{J}^{\mathsf T}\diag\!\bigl(1/\vect{g}\bigr)\,\matr{J},
     \label{eq:fisher}
 \end{equation}
-y la cota de Cram\'er--Rao (ec.~11)
+y la cota de Cram\'er--Rao
 \begin{equation}
     \Cov(\hat{\vect{\psi}})\ \succeq\ \matr{I}(\vect{\psi})^{-1},
     \qquad
-    \mathrm{CRB}=\matr{I}^{-1}\ (\text{o }\matr{I}^{+}\text{ si es mal condicionada}),
+    \mathrm{CRB}=\matr{I}^{-1}\ (\text{o }\matr{I}^{+}\text{ si mal condicionada}),
     \label{eq:crb}
 \end{equation}
 de donde $\sigma_\rho=\sqrt{[\mathrm{CRB}]_{00}}$,
 $\sigma_\varphi=\sqrt{[\mathrm{CRB}]_{11}}$,
-$\sigma_h=\sqrt{[\mathrm{CRB}]_{22}}$ y
-$\sigma_{\mathrm{tang}}=\rho\,\sigma_\varphi$. A diferencia del pipeline
-rasterizado, aqu\'i \textbf{no} hace falta el piso $\varepsilon$ en $1/g$: el
-fondo $b>0$ ya garantiza $g_q\ge b$. La funci\'on
-\texttt{compute\_crb\_analytic} devuelve la misma estructura de resultado y
-estad\'isticos que \texttt{compute\_crb\_polar} (reutiliza sus \emph{helpers}
+$\sigma_h=\sqrt{[\mathrm{CRB}]_{22}}$, $\sigma_{\mathrm{tang}}=\rho\,\sigma_\varphi$.
+Aqu\'i \textbf{no} hace falta el piso $\varepsilon$ en $1/g$: el fondo $b>0$ ya da
+$g_q\ge b$. \texttt{compute\_crb\_analytic} devuelve la misma estructura de
+resultado que \texttt{compute\_crb\_polar} (reutiliza sus \emph{helpers}
 \texttt{\_crb\_sigmas\_from\_matrix} y las curvas de elipse $3\sigma$).
 
 %==============================================================================
@@ -465,632 +1002,52 @@ Validamos que la derivada \emph{simb\'olica} es correcta compar\'andola con
 diferencias finitas centrales del \textbf{mismo} forward suave,
 \begin{equation}
     \left[\frac{\partial\vect{g}}{\partial\psi_m}\right]_{\mathrm{FD}}
-    =
-    \frac{\vect{g}(\vect{\psi}_0+\delta\vect{e}_m)
-          -\vect{g}(\vect{\psi}_0-\delta\vect{e}_m)}{2\delta},
+    =\frac{\vect{g}(\vect{\psi}_0+\delta\vect{e}_m)-\vect{g}(\vect{\psi}_0-\delta\vect{e}_m)}{2\delta},
     \qquad \delta=10^{-6},
     \label{eq:fd}
 \end{equation}
-sobre una malla de poses $\rho\in\{0.5,1.0,1.5\}$\,m,
-$\varphi\in\{30^\circ,90^\circ,150^\circ\}$, $h=1$\,m. Para que la comparaci\'on
-sea justa se \textbf{congela} la rejilla de bins en $\vect{\psi}_0$ (m\'etodo
-\texttt{freeze\_bins}) y se reutiliza en las evaluaciones $\pm\delta$, de modo
-que la ventana autom\'atica de bins no se desplace bajo la perturbaci\'on. El
-error se mide como desviaci\'on m\'axima escalada por la magnitud de columna
-$\max_q|J_{qm}|$ (m\'etrica robusta: el error relativo por elemento carece de
-sentido en los muchos p\'ixeles dominados por el fondo, donde $y_q\ll b$ y ambas
-derivadas son $\approx0$). El resultado (\texttt{validate\_analytic\_forward.py}):
+sobre poses $\rho\in\{0.5,1.0,1.5\}$\,m,
+$\varphi\in\{30^\circ,90^\circ,150^\circ\}$, $h=1$\,m. Para una comparaci\'on
+justa se \textbf{congela} la rejilla de bins en $\vect{\psi}_0$
+(\texttt{freeze\_bins}) y se reutiliza en $\pm\delta$. El error se mide como
+desviaci\'on m\'axima escalada por la magnitud de columna $\max_q|J_{qm}|$
+(m\'etrica robusta: el error relativo por elemento carece de sentido en los
+p\'ixeles dominados por el fondo, $y_q\ll b$). Resultado
+(\texttt{validate\_analytic\_forward.py}):
 \begin{center}
 \small
 \begin{tabular}{@{}rrr|ccc@{}}
 \toprule
 $\rho$ & $\varphi\,[^\circ]$ & $h$ & err $\partial/\partial\rho$ & err $\partial/\partial\varphi$ & err $\partial/\partial h$ \\
 \midrule
-0.50 &  30 & 1.00 & $2.6\times10^{-10}$ & $3.0\times10^{-10}$ & $1.0\times10^{-10}$ \\
-0.50 &  90 & 1.00 & $2.3\times10^{-10}$ & $4.7\times10^{-10}$ & $9.2\times10^{-11}$ \\
-0.50 & 150 & 1.00 & $1.3\times10^{-10}$ & $3.3\times10^{-10}$ & $5.8\times10^{-11}$ \\
-1.00 &  30 & 1.00 & $1.0\times10^{-10}$ & $3.7\times10^{-10}$ & $9.6\times10^{-11}$ \\
-1.00 &  90 & 1.00 & $1.1\times10^{-10}$ & $4.2\times10^{-10}$ & $8.6\times10^{-11}$ \\
-1.00 & 150 & 1.00 & $1.3\times10^{-10}$ & $1.4\times10^{-10}$ & $8.5\times10^{-11}$ \\
-1.50 &  30 & 1.00 & $2.5\times10^{-10}$ & $3.7\times10^{-10}$ & $1.9\times10^{-10}$ \\
-1.50 &  90 & 1.00 & $1.8\times10^{-10}$ & $3.6\times10^{-10}$ & $2.0\times10^{-10}$ \\
-1.50 & 150 & 1.00 & $2.7\times10^{-10}$ & $1.8\times10^{-10}$ & $1.1\times10^{-10}$ \\
+0.50 &  30 & 1.00 & $2.4\times10^{-10}$ & $3.0\times10^{-10}$ & $1.0\times10^{-10}$ \\
+0.50 &  90 & 1.00 & $2.3\times10^{-10}$ & $5.0\times10^{-10}$ & $8.9\times10^{-11}$ \\
+0.50 & 150 & 1.00 & $1.3\times10^{-10}$ & $3.6\times10^{-10}$ & $5.6\times10^{-11}$ \\
+1.00 &  30 & 1.00 & $9.8\times10^{-11}$ & $3.9\times10^{-10}$ & $9.6\times10^{-11}$ \\
+1.00 &  90 & 1.00 & $1.2\times10^{-10}$ & $3.8\times10^{-10}$ & $9.4\times10^{-11}$ \\
+1.00 & 150 & 1.00 & $1.2\times10^{-10}$ & $1.5\times10^{-10}$ & $8.4\times10^{-11}$ \\
+1.50 &  30 & 1.00 & $2.4\times10^{-10}$ & $3.8\times10^{-10}$ & $1.6\times10^{-10}$ \\
+1.50 &  90 & 1.00 & $1.9\times10^{-10}$ & $3.7\times10^{-10}$ & $2.1\times10^{-10}$ \\
+1.50 & 150 & 1.00 & $2.6\times10^{-10}$ & $1.9\times10^{-10}$ & $1.3\times10^{-10}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 \begin{equation*}
     \textbf{Error m\'aximo relativo (anal\'itico vs FD central):}\quad
-    4.7\times10^{-10}\ \ \ll\ \ 10^{-6}\ \ \Rightarrow\ \ \textbf{PASS}.
+    5.0\times10^{-10}\ \ \ll\ \ 10^{-6}\ \ \Rightarrow\ \ \textbf{PASS}.
 \end{equation*}
 Como CRB de referencia, en $(\rho,\varphi,h)=(1,90^\circ,1)$ se obtiene
-$\sigma_\rho\approx0.085$\,m, $\sigma_\varphi\approx1.69^\circ$,
-$\sigma_h\approx0.094$\,m.
+$\sigma_\rho\approx0.021$\,m, $\sigma_\varphi\approx0.39^\circ$,
+$\sigma_h\approx0.023$\,m.
 
 \begin{remark}[Qu\'e valida y qu\'e no]
 Esta prueba certifica que la \textbf{derivada cerrada es exacta} para el forward
-suave. \textbf{No} pretende reproducir el simulador rasterizado: el modelo
-anal\'itico de faceta puntual y el rasterizador de \emph{mesh} son
-\emph{forwards distintos} (uno reemplaza \texttt{ceil}/Heaviside/\texttt{max} por
-sus an\'alogos $C^\infty$). Son num\'ericamente distintos por construcci\'on; lo
-que compartimos con el \emph{writeup} es la \emph{estructura} Fisher--Poisson y
-el hecho de derivar bajo el integrando.
+suave del simulador (dos rebotes, cuatro cosenos, $4\pi^2$). \textbf{No} pretende
+reproducir el rasterizador de \emph{mesh}: el modelo anal\'itico de faceta puntual
+(con \'area efectiva constante, Obs.~\ref{rem:area}) y el rasterizador son
+\emph{forwards distintos} en magnitud. Lo que compartimos es la \emph{estructura}
+Fisher--Poisson y el derivar bajo el integrando.
 \end{remark}
-
-%==============================================================================
-\section{An\'alisis de regularidad y construcci\'on de una aproximaci\'on derivable}
-\label{sec:analisis}
-%==============================================================================
-
-Esta secci\'on desarrolla, con el aparato del an\'alisis real, \emph{por qu\'e} el
-forward duro no admite un gradiente cl\'asico informativo y \emph{c\'omo} se
-construye una funci\'on $C^\infty$ que lo aproxima y cuyas derivadas son exactas.
-Cada teorema se enuncia con sus hip\'otesis y se aplica a los bloques concretos
-de nuestro modelo (distancias, cosenos, ocultamiento, \emph{binning} temporal).
-
-%------------------------------------------------------------------------------
-\subsection{Preliminares y notaci\'on}
-\label{sec:prelim}
-%------------------------------------------------------------------------------
-
-Sea $\vect{\psi}=(\rho,\varphi,h)$ (o $(\rho,\varphi)$ fijando $h$). Trabajamos en
-el dominio de par\'ametros
-\begin{equation}
-    \Theta
-    =
-    \bigl\{(\rho,\varphi,h)\in\R^3 : \rho>0,\ \varphi\in(0,\pi),\ h>0\bigr\},
-    \label{eq:Theta}
-\end{equation}
-que es un \textbf{abierto} de $\R^3$ (intersecci\'on finita de semiespacios y
-bandas abiertas). La faceta puntual es
-$\vect{p}_s(\vect{\psi})=(\rho\cos\varphi,\ \rho\sin\varphi,\ h)$. Las posiciones
-del l\'aser $\vect{p}_l$, la c\'amara $\vect{p}_c$ y los p\'ixeles de piso
-$\{\vect{p}_{f,i}\}_{i=1}^{P}$ (con normales $\hat{\vect n}_f$) son
-\emph{fijas}. El espacio de mediciones es $\R^N$, indexado por
-$q=(i,j)$ con $i$ el p\'ixel y $j$ el bin temporal
-$[t_{j-1},t_j]$, $t_j=j\,\Delta t$.
-
-\begin{assumption}[No degeneraci\'on geom\'etrica]\label{as:geom}
-Para todo $\vect{\psi}\in\Theta$ y todo p\'ixel $i$:
-(a) $\vect{p}_s(\vect{\psi})\neq\vect{p}_l$, $\vect{p}_s(\vect{\psi})\neq\vect{p}_{f,i}$ y
-$\vect{p}_c\neq\vect{p}_{f,i}$ (todas las distancias son estrictamente positivas);
-(b) $s_y(\vect{\psi})\neq p_{y,i}$, de modo que la coordenada de cruce por la
-arista est\'a bien definida. Si hiciera falta, restringimos $\Theta$ a un abierto
-donde (a)--(b) se cumplan.
-\end{assumption}
-
-Con $d_i(\vect{\psi})=\norm{\vect{p}_s(\vect{\psi})-\vect{p}_l}
-+\norm{\vect{p}_s(\vect{\psi})-\vect{p}_{f,i}}$ el camino l\'aser$\to$faceta$\to$p\'ixel
-y $t_{0,i}(\vect{\psi})=d_i(\vect{\psi})/c$ el tiempo de vuelo, el forward
-\textbf{duro} (el del rasterizador) se escribe formalmente como
-\begin{equation}
-    g^{\mathrm{hard}}_q(\vect{\psi})
-    =
-    y^{\mathrm{hard}}_q(\vect{\psi})+b,
-    \qquad
-    y^{\mathrm{hard}}_q(\vect{\psi})
-    =
-    A_i(\vect{\psi})\;
-    \mathbf{1}_{[t_{j-1},t_j)}\!\bigl(t_{0,i}(\vect{\psi})\bigr)\;
-    \mathbf{1}_{\{e_i(\vect{\psi})>0\}},
-    \label{eq:hard}
-\end{equation}
-donde $A_i(\vect{\psi})\ge0$ es la amplitud radiom\'etrica del p\'ixel
-(producto de cosenos con \emph{clamps} y ca\'ida radial), $e_i(\vect{\psi})$ es la
-funci\'on de borde (coordenada de cruce por la arista, Sec.~\ref{sec:vis}), y
-$\mathbf{1}_S$ la indicatriz de $S$. El primer indicador codifica el
-\emph{binning} $\lceil\cdot\rceil$; el segundo, el ocultamiento; los
-\emph{clamps} $\max(0,\cdot)$ viven dentro de $A_i$.
-
-%------------------------------------------------------------------------------
-\subsection{Regularidad de los bloques suaves}
-\label{sec:reg-suaves}
-%------------------------------------------------------------------------------
-
-\begin{lemma}[La norma eucl\'idea es $C^\infty$ fuera del origen]\label{lem:norm}
-La aplicaci\'on $\norm{\cdot}:\R^n\setminus\{0\}\to\R$, $x\mapsto\sqrt{x\cdot x}$,
-es $C^\infty$ (de hecho real-anal\'itica).
-\end{lemma}
-\begin{proof}
-$x\mapsto x\cdot x=\sum_k x_k^2$ es un polinomio, luego $C^\infty$, y es
-estrictamente positivo en $\R^n\setminus\{0\}$. La ra\'iz $\sqrt{\cdot}$ es
-$C^\infty$ en $(0,\infty)$. La composici\'on de aplicaciones $C^\infty$ es
-$C^\infty$.
-\end{proof}
-
-\begin{proposition}[Distancias y tiempo de vuelo $C^\infty$]\label{prop:dist}
-Bajo la Hip.~\ref{as:geom}(a), para cada $i$ las funciones
-$d_i,\ t_{0,i}:\Theta\to\R$ son $C^\infty$.
-\end{proposition}
-\begin{proof}
-Cada componente de $\vect{p}_s(\vect{\psi})=(\rho\cos\varphi,\rho\sin\varphi,h)$
-es producto/composici\'on de las funciones reales-anal\'iticas $\rho,\cos,\sin$,
-luego $\vect{p}_s\in C^\infty(\Theta;\R^3)$. Las traslaciones por $\vect{p}_l$,
-$\vect{p}_{f,i}$ son afines ($C^\infty$). Por la Hip.~\ref{as:geom}(a) los
-argumentos $\vect{p}_s-\vect{p}_l$ y $\vect{p}_s-\vect{p}_{f,i}$ no se anulan, de
-modo que el Lema~\ref{lem:norm} y la regla de la cadena dan
-$\norm{\vect{p}_s-\vect{p}_l},\norm{\vect{p}_s-\vect{p}_{f,i}}\in C^\infty$. La
-suma de funciones $C^\infty$ es $C^\infty$; y $t_{0,i}=d_i/c$ (escalado) tambi\'en.
-\end{proof}
-
-\begin{proposition}[Cosenos de \emph{foreshortening} $C^\infty$]\label{prop:cos}
-Cada coseno $c_k(\vect{\psi})=\dfrac{\hat{\vect n}_a(\vect{\psi})\cdot
-\vect{u}_k(\vect{\psi})}{\norm{\vect{u}_k(\vect{\psi})}}$
-de \eqref{eq:foreshortening} es $C^\infty$ en $\Theta$.
-\end{proposition}
-\begin{proof}
-La normal $\hat{\vect n}_s(\vect{\psi})=(-\cos\varphi,-\sin\varphi,0)$ es
-$C^\infty$; $\hat{\vect n}_f,\hat{\vect n}_l$ son constantes. Los vectores
-$\vect{u}_k$ (diferencias de $\vect{p}_s,\vect{p}_l,\vect{p}_c,\vect{p}_{f,i}$)
-son $C^\infty$ por la Prop.~\ref{prop:dist}. El numerador
-$\hat{\vect n}_a\cdot\vect{u}_k$ es bilineal en entradas $C^\infty$, luego
-$C^\infty$; el denominador $\norm{\vect{u}_k}$ es $C^\infty$ y no nulo
-(Hip.~\ref{as:geom}(a), Lema~\ref{lem:norm}). El cociente de funciones $C^\infty$
-con denominador que no se anula es $C^\infty$.
-\end{proof}
-
-En consecuencia, la amplitud $A_i$ \emph{sin} el \emph{clamp} $\max(0,\cdot)$ y
-sin la indicatriz de ocultamiento ser\'ia ya $C^\infty$: toda la
-no diferenciabilidad proviene de los tres operadores no suaves de
-\eqref{eq:hard}.
-
-%------------------------------------------------------------------------------
-\subsection{Diagn\'ostico de la no diferenciabilidad}
-\label{sec:diagnostico}
-%------------------------------------------------------------------------------
-
-\subsubsection*{(a) Indicador de \emph{binning} y de ocultamiento: discontinuidad de salto}
-
-\begin{theorem}[Superficie de salto v\'ia funci\'on impl\'icita]\label{thm:ift}
-Sea $\phi\in C^1(\Theta)$ (p.\,ej.\ $\phi=d_i$ o $\phi=e_i$) y $a\in\R$ un valor
-tal que $Z_a:=\{\vect{\psi}\in\Theta:\phi(\vect{\psi})=a\}\neq\varnothing$.
-Si $\nabla\phi(\vect{\psi}^\ast)\neq\vect 0$ en $\vect{\psi}^\ast\in Z_a$, entonces
-existe un entorno de $\vect{\psi}^\ast$ en el que $Z_a$ es una subvariedad $C^1$
-embebida de codimensi\'on $1$ (una hipersuperficie). Adem\'as la funci\'on
-$\vect{\psi}\mapsto\mathbf{1}_{\{\phi>a\}}(\vect{\psi})$ es discontinua en cada
-punto de $Z_a$ y \textbf{localmente constante} (por tanto de gradiente cl\'asico
-nulo) en el abierto $\Theta\setminus\phi^{-1}(\{a\})$.
-\end{theorem}
-\begin{proof}
-Como $\nabla\phi(\vect{\psi}^\ast)\neq\vect0$, alguna derivada parcial
-$\partial_{\psi_r}\phi(\vect{\psi}^\ast)\neq0$. El \textbf{Teorema de la funci\'on
-impl\'icita} aplicado a $\phi(\vect{\psi})-a=0$ garantiza que, localmente,
-$\psi_r$ se despeja como funci\'on $C^1$ de las restantes coordenadas; el grafo de
-esa funci\'on es $Z_a$ cerca de $\vect{\psi}^\ast$, i.e.\ una hipersuperficie
-$C^1$. Por continuidad de $\phi$, el conjunto $\{\phi>a\}$ es abierto y
-$\{\phi<a\}$ es abierto; en cada uno $\mathbf{1}_{\{\phi>a\}}$ vale
-constantemente $1$ o $0$, luego es localmente constante y su gradiente cl\'asico
-es $\vect0$. En $\vect{\psi}^\ast\in Z_a$, todo entorno contiene puntos de ambos
-lados (pues $\nabla\phi\neq0$ implica que $\phi$ toma valores $>a$ y $<a$
-arbitrariamente cerca), de modo que $\mathbf{1}_{\{\phi>a\}}$ salta y es
-discontinua.
-\end{proof}
-
-Aplicado a \eqref{eq:hard}: el \emph{binning} $\mathbf{1}_{[t_{j-1},t_j)}(t_{0,i}(\vect{\psi}))$
-salta a trav\'es de las hipersuperficies $\{t_{0,i}=t_{j-1}\}$ y
-$\{t_{0,i}=t_j\}$ (isocronas), y el ocultamiento
-$\mathbf{1}_{\{e_i>0\}}$ salta a trav\'es de la frontera de sombra
-$\{e_i=0\}$. Entre saltos, ambos son localmente constantes: de ah\'i la patolog\'ia
-\textbf{``meseta plana ($\nabla=\vect0$) $+$ salto''}, que borra toda la
-informaci\'on de primer orden salvo en un conjunto de medida nula donde ni
-siquiera existe la derivada.
-
-\subsubsection*{(b) \emph{Clamp} $\max(0,\cdot)$: convexo, Lipschitz, no derivable en $0$}
-
-\begin{proposition}[Regularidad de $\max(0,\cdot)$]\label{prop:relu}
-La funci\'on $r(x)=\max(0,x)$ es convexa y $1$-Lipschitz en $\R$, derivable en
-$\R\setminus\{0\}$ con $r'(x)=\mathbf{1}_{\{x>0\}}$, y \emph{no} derivable en
-$x=0$: sus derivadas laterales valen $r'_-(0)=0\neq1=r'_+(0)$.
-\end{proposition}
-\begin{proof}
-Convexidad: $r=\max$ de las funciones afines $0$ y $x$, y el m\'aximo puntual de
-funciones convexas es convexo. Lipschitz: $\abs{r(x)-r(y)}\le\abs{x-y}$ pues
-$r$ tiene pendiente $0$ o $1$. Para $x\neq0$, $r$ coincide localmente con $0$ o
-con $x$, de derivada $0$ o $1$. En $0$:
-$r'_+(0)=\lim_{t\downarrow0}\frac{r(t)-r(0)}{t}=\lim\frac{t}{t}=1$ y
-$r'_-(0)=\lim_{t\uparrow0}\frac{0-0}{t}=0$; al diferir, $r$ no es derivable en $0$.
-\end{proof}
-
-\begin{theorem}[Rademacher]\label{thm:rademacher}
-Si $f:\R^n\to\R$ es localmente Lipschitz, entonces $f$ es diferenciable en
-casi todo punto (respecto de la medida de Lebesgue).
-\end{theorem}
-
-La Prop.~\ref{prop:relu} y el Teorema~\ref{thm:rademacher} sit\'uan a
-$\max(0,\cdot)$ (y a la ReLU) en la clase ``Lipschitz $\Rightarrow$ derivable en
-c.t.p.'': su \'unico defecto es un conjunto \emph{numerable} de codos. En cambio
-los indicadores de \eqref{eq:hard} \textbf{no son Lipschitz} (tienen saltos), de
-modo que est\'an \emph{fuera} de la hip\'otesis de Rademacher: son estrictamente
-peores que ``no derivables'', son \textbf{discontinuos}.
-
-\subsubsection*{(c) Derivada distribucional y fracaso de las diferencias finitas}
-
-En sentido distribucional, la derivada del escal\'on de Heaviside es una masa de
-Dirac, $H'=\delta$ en $\mathcal{D}'(\R)$: toda la informaci\'on de primer orden
-del salto se concentra en un punto de medida nula, mientras la derivada
-\emph{cl\'asica} es $0$ en c.t.p. Esto explica por qu\'e una diferencia finita
-sobre un escal\'on \textbf{no converge}.
-
-\begin{proposition}[Inconsistencia de la diferencia finita en un salto]\label{prop:fd}
-Sea $f(x)=A\,\mathbf{1}_{\{x>0\}}$ con $A\neq0$ y consid\'erese la diferencia
-central $D_\delta f(x_0)=\dfrac{f(x_0+\delta)-f(x_0-\delta)}{2\delta}$, $\delta>0$.
-Entonces
-\[
-    D_\delta f(x_0)=
-    \begin{cases}
-        \dfrac{A}{2\delta}, & \abs{x_0}<\delta,\\[4pt]
-        0, & \abs{x_0}>\delta.
-    \end{cases}
-\]
-En particular, para $x_0=0$ fijo, $D_\delta f(0)=A/(2\delta)\to\pm\infty$ cuando
-$\delta\to0^+$; y para $x_0\neq0$ fijo el valor salta de $A/(2\delta)$ a $0$ al
-cruzar $\delta=\abs{x_0}$. El l\'imite $\lim_{\delta\to0^+}D_\delta f(x_0)$ no
-existe (o es $+\infty$) en el salto: la diferencia finita \emph{depende del paso}
-$\delta$ y no aproxima ninguna derivada.
-\end{proposition}
-\begin{proof}
-Si $\abs{x_0}>\delta$, entonces $x_0-\delta$ y $x_0+\delta$ caen del mismo lado de
-$0$, luego $f(x_0+\delta)=f(x_0-\delta)$ y $D_\delta f=0$. Si $\abs{x_0}<\delta$,
-entonces $x_0-\delta<0<x_0+\delta$, luego $f(x_0+\delta)-f(x_0-\delta)=A-0=A$ y
-$D_\delta f=A/(2\delta)$. Las conclusiones sobre l\'imites son inmediatas.
-\end{proof}
-
-\'Esta es la raz\'on de fondo por la que el pipeline con FD debe elegir con cuidado
-los pasos $\delta_\rho,\delta_\varphi,\delta_h$: sobre las mesetas planas obtiene
-$0$; cerca de una isocrona o de la frontera de sombra, un valor
-$\propto1/\delta$. El promedio sobre los $N$ bins amortigua el efecto, pero la
-derivada carece de un l\'imite bien definido.
-
-%------------------------------------------------------------------------------
-\subsection{Herramientas de an\'alisis real}
-\label{sec:herramientas}
-%------------------------------------------------------------------------------
-
-\begin{lemma}[Convergencia dominada, TCD]\label{lem:tcd}
-Sea $(f_n)$ una sucesi\'on de funciones medibles en un espacio de medida
-$(X,\mu)$ con $f_n\to f$ en c.t.p.\ y $\abs{f_n}\le G$ para todo $n$ con
-$G\in L^1(\mu)$. Entonces $f\in L^1$ y
-$\int_X f_n\,d\mu\to\int_X f\,d\mu$.
-\end{lemma}
-
-\begin{theorem}[Diferenciaci\'on bajo el signo integral, Leibniz v\'ia TCD]\label{thm:leibniz}
-Sea $\Theta\subseteq\R^m$ abierto y $F:\Theta\times X\to\R$ tal que:
-(i) para cada $\vect{\psi}$, $F(\vect{\psi},\cdot)\in L^1(\mu)$;
-(ii) para $\mu$-c.t.\ $t$, $\vect{\psi}\mapsto F(\vect{\psi},t)$ es derivable en
-$\Theta$ respecto de $\psi_m$;
-(iii) existe $G\in L^1(\mu)$ y un entorno $U$ de $\vect{\psi}_0$ con
-$\abs{\partial_{\psi_m}F(\vect{\psi},t)}\le G(t)$ para todo $\vect{\psi}\in U$ y
-$\mu$-c.t.\ $t$.
-Entonces $\Phi(\vect{\psi})=\int_X F(\vect{\psi},t)\,d\mu(t)$ es derivable en
-$\vect{\psi}_0$ y
-\[
-    \partial_{\psi_m}\Phi(\vect{\psi}_0)
-    =
-    \int_X \partial_{\psi_m}F(\vect{\psi}_0,t)\,d\mu(t).
-\]
-Si adem\'as $\partial_{\psi_m}F$ es continua en $\vect{\psi}$, entonces
-$\Phi\in C^1$.
-\end{theorem}
-\begin{proof}[Idea]
-Se toma una sucesi\'on $h_n\to0$ y se aplica el Teorema del valor medio a
-$\frac{F(\vect{\psi}_0+h_n\vect{e}_m,t)-F(\vect{\psi}_0,t)}{h_n}
-=\partial_{\psi_m}F(\vect{\xi}_n,t)$, dominado por $G$ v\'ia (iii); el
-Lema~\ref{lem:tcd} permite pasar el l\'imite bajo la integral.
-\end{proof}
-
-\begin{theorem}[\emph{Mollifiers} de Friedrichs / aproximaci\'on de la identidad]\label{thm:mollifier}
-Sea $\eta\in C_c^\infty(\R^n)$ con $\eta\ge0$ y $\int\eta=1$, y
-$\eta_\varepsilon(x)=\varepsilon^{-n}\eta(x/\varepsilon)$. Para $f\in L^1_{loc}(\R^n)$:
-(a) $f*\eta_\varepsilon\in C^\infty(\R^n)$ y
-$\partial^\alpha(f*\eta_\varepsilon)=f*\partial^\alpha\eta_\varepsilon$;
-(b) $f*\eta_\varepsilon\to f$ en $L^1_{loc}$ y en c.t.\ punto (puntos de Lebesgue)
-cuando $\varepsilon\to0^+$;
-(c) si $f$ es continua en un compacto $K$, la convergencia es
-\textbf{uniforme} en $K$.
-\end{theorem}
-\begin{proof}[Idea]
-(a) Los cocientes incrementales de $f*\eta_\varepsilon$ derivan sobre
-$\eta_\varepsilon\in C_c^\infty$, y se intercambian con la integral por el
-Teorema~\ref{thm:leibniz} (dominaci\'on por $\norm{\partial^\alpha\eta_\varepsilon}_\infty
-\mathbf{1}_{\supp}$). (b)--(c) por $\int\eta_\varepsilon=1$ y concentraci\'on del
-soporte: $\abs{(f*\eta_\varepsilon)(x)-f(x)}\le\int\eta_\varepsilon(y)\abs{f(x-y)-f(x)}\,dy$,
-que tiende a $0$ por continuidad ($L^1$) de las traslaciones.
-\end{proof}
-
-\begin{remark}[N\'ucleo gaussiano]
-El n\'ucleo gaussiano $\rho_\tau(t)=(\tau\sqrt{2\pi})^{-1}e^{-t^2/2\tau^2}$ no tiene
-soporte compacto, pero pertenece a la clase de Schwartz y es una
-\emph{aproximaci\'on de la identidad}: satisface $\rho_\tau\ge0$,
-$\int\rho_\tau=1$ y las conclusiones (a)--(c) del Teorema~\ref{thm:mollifier}
-siguen valiendo (la dominaci\'on en (a) usa el decaimiento gaussiano en lugar del
-soporte compacto). Es el n\'ucleo que usamos para el pulso.
-\end{remark}
-
-\begin{lemma}[$\erf$ es real-anal\'itica]\label{lem:erf}
-$\erf(x)=\frac{2}{\sqrt\pi}\int_0^x e^{-u^2}\,du$ pertenece a $C^\infty(\R)$ (es
-real-anal\'itica) y $\erf'(x)=\frac{2}{\sqrt\pi}e^{-x^2}$.
-\end{lemma}
-\begin{proof}
-El integrando $u\mapsto e^{-u^2}$ es entero; por el Teorema fundamental del
-c\'alculo $\erf$ es derivable con la derivada indicada, que es a su vez
-$C^\infty$; por inducci\'on $\erf\in C^\infty$. La analiticidad se sigue de la
-serie de potencias de $e^{-u^2}$ integrada t\'ermino a t\'ermino.
-\end{proof}
-
-%------------------------------------------------------------------------------
-\subsection{Construcci\'on de la sustituta suave $g_{\tau,\kappa,\beta}$}
-\label{sec:construccion}
-%------------------------------------------------------------------------------
-
-\subsubsection*{(i) Pulso de ancho $\tau$ como convoluci\'on: energ\'ia por bin en $C^\infty$}
-
-El impulso duro deposita la amplitud en el instante $t_{0,i}(\vect{\psi})$, i.e.\
-una masa $\delta_{t_{0,i}(\vect{\psi})}$. Convolucion\'andolo con el n\'ucleo
-gaussiano $\rho_\tau$ se obtiene la densidad temporal
-$s_\tau(\,\cdot\,-t_{0,i})=\delta_{t_{0,i}}*\rho_\tau\in C^\infty$, y la energ\'ia
-recogida por el bin $j$ es
-\begin{equation}
-    S_{ij}(\vect{\psi})
-    =
-    \int_{t_{j-1}}^{t_j}\rho_\tau\!\bigl(t-t_{0,i}(\vect{\psi})\bigr)\,dt
-    =
-    \tfrac12\!\left[
-        \erf\!\Bigl(\tfrac{t_j-t_{0,i}(\vect{\psi})}{\sqrt2\,\tau}\Bigr)
-        -\erf\!\Bigl(\tfrac{t_{j-1}-t_{0,i}(\vect{\psi})}{\sqrt2\,\tau}\Bigr)
-    \right].
-    \label{eq:Sij}
-\end{equation}
-
-\begin{proposition}[$S_{ij}\in C^\infty(\Theta)$ y su derivada]\label{prop:Sij}
-Bajo la Hip.~\ref{as:geom}(a), $S_{ij}\in C^\infty(\Theta)$ y
-\begin{equation}
-    \frac{\partial S_{ij}}{\partial\psi_m}
-    =
-    -\,\frac{\partial t_{0,i}}{\partial\psi_m}\,
-    \frac{1}{\tau\sqrt{2\pi}}
-    \left[
-        e^{-(t_j-t_{0,i})^2/2\tau^2}
-        - e^{-(t_{j-1}-t_{0,i})^2/2\tau^2}
-    \right].
-    \label{eq:dSij}
-\end{equation}
-\end{proposition}
-\begin{proof}
-\emph{V\'ia composici\'on.} Por la Prop.~\ref{prop:dist}, $t_{0,i}\in C^\infty$; la
-aplicaci\'on $z\mapsto(t_k-z)/(\sqrt2\tau)$ es af\'in ($C^\infty$) y, por el
-Lema~\ref{lem:erf}, $\erf\in C^\infty$. Composici\'on y combinaci\'on lineal de
-funciones $C^\infty$ dan $S_{ij}\in C^\infty$. La f\'ormula \eqref{eq:dSij} es la
-regla de la cadena con $\erf'(x)=\frac{2}{\sqrt\pi}e^{-x^2}$ y
-$\frac{d}{d\psi_m}\frac{t_k-t_{0,i}}{\sqrt2\tau}=-\frac{1}{\sqrt2\tau}\partial_{\psi_m}t_{0,i}$;
-el factor $\frac{2}{\sqrt\pi}\cdot\frac12\cdot\frac{1}{\sqrt2\tau}=\frac{1}{\tau\sqrt{2\pi}}$.
-
-\emph{V\'ia Leibniz$+$TCD (alternativa).} Con $F(\vect{\psi},t)=
-\mathbf{1}_{[t_{j-1},t_j]}(t)\,\rho_\tau(t-t_{0,i}(\vect{\psi}))$ se tiene
-$\abs{\partial_{\psi_m}F(\vect{\psi},t)}
-=\mathbf{1}_{[t_{j-1},t_j]}(t)\,\rho_\tau(t-t_{0,i})\,
-\frac{\abs{t-t_{0,i}}}{\tau^2}\,\abs{\partial_{\psi_m}t_{0,i}}$,
-acotada uniformemente en un entorno compacto de $\vect{\psi}_0$ por una constante
-integrable en $[t_{j-1},t_j]$ (envolvente gaussiana por polinomio). El
-Teorema~\ref{thm:leibniz} justifica derivar bajo la integral y recuperar
-\eqref{eq:dSij}.
-\end{proof}
-
-\subsubsection*{(ii) Ocultamiento suave: sigmoide log\'istica}
-
-\begin{proposition}[Sigmoide]\label{prop:sigmoid}
-$\sigma_\kappa(x)=\bigl(1+e^{-\kappa x}\bigr)^{-1}$ pertenece a $C^\infty(\R)$;
-$\sigma_\kappa'(x)=\kappa\,\sigma_\kappa(x)\bigl(1-\sigma_\kappa(x)\bigr)$;
-y $\sigma_\kappa\to H$ puntualmente para $x\neq0$. Adem\'as, para todo $\eta>0$,
-\begin{equation}
-    \sup_{\abs{x}\ge\eta}\abs{\sigma_\kappa(x)-H(x)}
-    =\frac{1}{1+e^{\kappa\eta}}\le e^{-\kappa\eta}
-    \xrightarrow[\kappa\to\infty]{}0,
-    \label{eq:sig-unif}
-\end{equation}
-esto es, convergencia \textbf{uniforme} fuera de una capa l\'imite de ancho
-$\sim1/\kappa$.
-\end{proposition}
-\begin{proof}
-$x\mapsto e^{-\kappa x}$ es $C^\infty$ y $1+e^{-\kappa x}>0$, luego su rec\'iproca
-es $C^\infty$; la f\'ormula de $\sigma_\kappa'$ es c\'alculo directo. Para $x\ge\eta$,
-$0<1-\sigma_\kappa(x)=\frac{e^{-\kappa x}}{1+e^{-\kappa x}}\le e^{-\kappa x}\le e^{-\kappa\eta}$;
-por simetr\'ia $\sigma_\kappa(x)\le e^{-\kappa\eta}$ para $x\le-\eta$. Esto da
-\eqref{eq:sig-unif} y la convergencia puntual para $x\neq0$.
-\end{proof}
-
-\subsubsection*{(iii) \emph{Foreshortening} suave: softplus con cota uniforme}
-
-\begin{proposition}[Softplus]\label{prop:softplus}
-$\softplus_\beta(x)=\beta^{-1}\log\!\bigl(1+e^{\beta x}\bigr)$ pertenece a
-$C^\infty(\R)$, con $\softplus_\beta'(x)=\sigma_\beta(x)\to H(x)$, y satisface la
-cota \textbf{uniforme}
-\begin{equation}
-    0\ \le\ \softplus_\beta(x)-\max(0,x)\ \le\ \frac{\log 2}{\beta}
-    \qquad\text{para todo } x\in\R.
-    \label{eq:sp-bound}
-\end{equation}
-\end{proposition}
-\begin{proof}
-$1+e^{\beta x}>0$ es $C^\infty$ y $\log$ es $C^\infty$ en $(0,\infty)$, luego
-$\softplus_\beta\in C^\infty$; su derivada es
-$\frac{e^{\beta x}}{1+e^{\beta x}}=\sigma_\beta(x)$. Para la cota, distinguimos
-signos. Si $x\ge0$: $\max(0,x)=x$ y
-\[
-    \softplus_\beta(x)-x
-    =\beta^{-1}\bigl[\log(1+e^{\beta x})-\beta x\bigr]
-    =\beta^{-1}\log\!\bigl(e^{-\beta x}+1\bigr)\in\bigl(0,\ \tfrac{\log2}{\beta}\bigr],
-\]
-pues $e^{-\beta x}\in(0,1]$. Si $x<0$: $\max(0,x)=0$ y
-$\softplus_\beta(x)=\beta^{-1}\log(1+e^{\beta x})\in\bigl(0,\tfrac{\log2}{\beta}\bigr)$
-porque $e^{\beta x}\in(0,1)$. En ambos casos se cumple \eqref{eq:sp-bound}; el
-m\'aximo $\log2/\beta$ se alcanza en $x=0$, donde $\softplus_\beta(0)=\log2/\beta$.
-\end{proof}
-
-\subsubsection*{Ensamblado}
-
-\begin{theorem}[El forward suave es $C^\infty$]\label{thm:g-smooth}
-Bajo la Hip.~\ref{as:geom}, para cualesquiera $\tau>0$, $\kappa>0$, $\beta>0$
-fijos, la tasa
-\begin{equation}
-    g^{\tau,\kappa,\beta}_q(\vect{\psi})
-    =
-    b + \frac{\alpha\,G\,
-        \sigma_\kappa\!\bigl(e_i(\vect{\psi})\bigr)\,
-        \prod_{k=1}^{5}\softplus_\beta\!\bigl(c_k(\vect{\psi})\bigr)}
-        {8\pi^3\,\norm{\vect{p}_c-\vect{p}_{f,i}}^2\,
-         \norm{\vect{p}_s-\vect{p}_l}^2\,\norm{\vect{p}_s-\vect{p}_{f,i}}^2}\;
-    S_{ij}(\vect{\psi})
-    \label{eq:g-smooth-def}
-\end{equation}
-pertenece a $C^\infty(\Theta)$ para cada $q=(i,j)$.
-\end{theorem}
-\begin{proof}
-$e_i\in C^\infty$ (cociente con denominador $s_y-p_{y,i}\neq0$, Hip.~\ref{as:geom}(b)),
-luego $\sigma_\kappa\circ e_i\in C^\infty$ (Prop.~\ref{prop:sigmoid}, cadena);
-$c_k\in C^\infty$ (Prop.~\ref{prop:cos}) implica
-$\softplus_\beta\circ c_k\in C^\infty$ (Prop.~\ref{prop:softplus}); el producto
-finito de \'estos es $C^\infty$. El denominador radiom\'etrico es producto de
-normas $C^\infty$ estrictamente positivas (Lema~\ref{lem:norm},
-Hip.~\ref{as:geom}(a)), as\'i que su rec\'iproca es $C^\infty$. $S_{ij}\in C^\infty$
-por la Prop.~\ref{prop:Sij}. Productos y sumas finitas de funciones $C^\infty$
-son $C^\infty$; sumar la constante $b$ no altera la clase.
-\end{proof}
-
-%------------------------------------------------------------------------------
-\subsection{Regularidad del peso de Poisson, la Fisher y el CRB}
-\label{sec:reg-fisher}
-%------------------------------------------------------------------------------
-
-\begin{corollary}[Peso $1/g$ e informaci\'on de Fisher $C^\infty$]\label{cor:fisher}
-Como $g^{\tau,\kappa,\beta}_q\ge b>0$ en todo $\Theta$, el peso $1/g_q$ es
-$C^\infty$; en consecuencia
-$\matr{I}(\vect{\psi})=\sum_{q=1}^{N}\frac{1}{g_q(\vect{\psi})}\,
-\nabla g_q(\vect{\psi})\,\nabla g_q(\vect{\psi})^{\mathsf T}$
-tiene entradas $C^\infty(\Theta)$.
-\end{corollary}
-\begin{proof}
-La aplicaci\'on $u\mapsto1/u$ es $C^\infty$ en $[b,\infty)\subset(0,\infty)$; como
-$g_q$ toma valores en $[b,\infty)$ y $g_q\in C^\infty$
-(Teorema~\ref{thm:g-smooth}), la composici\'on $1/g_q\in C^\infty$. Cada entrada
-de $\matr{I}$ es una suma \emph{finita} de productos de $1/g_q$ y de derivadas
-parciales $\partial_{\psi_m}g_q$ (que son $C^\infty$ porque $g_q\in C^\infty$),
-luego es $C^\infty$.
-\end{proof}
-
-\begin{proposition}[El CRB es $C^\infty$ donde $\matr{I}\succ0$]\label{prop:crb-smooth}
-En el abierto $\Theta_+=\{\vect{\psi}\in\Theta:\matr{I}(\vect{\psi})\succ0\}$, la
-aplicaci\'on $\vect{\psi}\mapsto\matr{I}(\vect{\psi})^{-1}$ es $C^\infty$; en
-particular $\mathrm{CRB}(\vect{\psi})=\matr{I}(\vect{\psi})^{-1}$ y las varianzas
-$\sigma_{\psi_m}^2=[\matr{I}^{-1}]_{mm}$ son funciones $C^\infty$ de $\vect{\psi}$.
-\end{proposition}
-\begin{proof}
-La inversi\'on matricial $\mathrm{inv}:\mathrm{GL}(p)\to\mathrm{GL}(p)$ es
-$C^\infty$ (de hecho real-anal\'itica): por la regla de Cramer,
-$[\matr{A}^{-1}]_{rs}=\mathrm{cof}_{sr}(\matr{A})/\det(\matr{A})$, cociente de
-polinomios en las entradas con denominador $\det\neq0$ en $\mathrm{GL}(p)$. En
-$\Theta_+$, $\matr{I}(\vect{\psi})$ es sim\'etrica definida positiva, luego
-invertible; componiendo con $\matr{I}\in C^\infty$ (Cor.~\ref{cor:fisher}) se
-obtiene $\matr{I}^{-1}\in C^\infty$. La diagonal y sus ra\'ices (donde son
-positivas) heredan la regularidad.
-\end{proof}
-
-\begin{remark}[El papel de $b>0$]
-La Prop.~\ref{prop:crb-smooth} y el Cor.~\ref{cor:fisher} muestran d\'onde el
-fondo $b>0$ es esencial: garantiza $g_q\ge b$ \emph{uniformemente}, de modo que
-$1/g_q$ y sus derivadas est\'an acotadas y son suaves \textbf{incluso en los
-p\'ixeles/bins donde $y_q=0$}. No se necesita ning\'un piso $\varepsilon$ ni
-l\'imites $g\to0$: la construcci\'on es regular en todo $\Theta_+$.
-\end{remark}
-
-%------------------------------------------------------------------------------
-\subsection{Consistencia con el modelo duro y control de error}
-\label{sec:consistencia}
-%------------------------------------------------------------------------------
-
-\begin{proposition}[Convergencia al forward duro]\label{prop:consistencia}
-Fijado $\vect{\psi}\in\Theta$ tal que, para todo $i$, $t_{0,i}(\vect{\psi})\notin\{t_{j-1},t_j\}$
-(no est\'a sobre una isocrona) y $e_i(\vect{\psi})\neq0$ (fuera de la frontera de
-sombra), se cumple, cuando $\tau\to0^+$, $\kappa\to\infty$ y $\beta\to\infty$,
-\[
-    g^{\tau,\kappa,\beta}_q(\vect{\psi})\longrightarrow g^{\mathrm{hard}}_q(\vect{\psi}).
-\]
-La convergencia es puntual en c.t.\ $\vect{\psi}$ (el conjunto excluido
---- uni\'on finita de isocronas $\{t_{0,i}=t_k\}$ y fronteras $\{e_i=0\}$, cada
-una hipersuperficie por el Teorema~\ref{thm:ift} --- tiene medida de Lebesgue
-nula).
-\end{proposition}
-\begin{proof}[Idea]
-Por la Prop.~\ref{prop:softplus}, $\softplus_\beta(c_k)\to\max(0,c_k)$
-uniformemente (cota $\log2/\beta$); por la Prop.~\ref{prop:sigmoid},
-$\sigma_\kappa(e_i)\to H(e_i)=\mathbf{1}_{\{e_i>0\}}$ para $e_i\neq0$; y, como
-$\rho_\tau$ es una aproximaci\'on de la identidad, $S_{ij}(\vect{\psi})\to
-\mathbf{1}_{[t_{j-1},t_j)}(t_{0,i})$ cuando $\tau\to0^+$ siempre que $t_{0,i}$ no
-coincida con un extremo del bin (Teorema~\ref{thm:mollifier} aplicado a la
-indicatriz del bin, continua en $t_{0,i}$). El producto de estos l\'imites es
-$g^{\mathrm{hard}}_q$.
-\end{proof}
-
-\paragraph{Cotas de error.} El sesgo introducido por cada suavizado est\'a
-controlado expl\'icitamente: el \emph{clamp} por a lo sumo $\log2/\beta$
-(Prop.~\ref{prop:softplus}, \emph{uniforme en $x$}); el ocultamiento por una capa
-de ancho $\sim1/\kappa$ con cola $e^{-\kappa\eta}$ fuera de ella
-(Prop.~\ref{prop:sigmoid}); y el pulso por su desviaci\'on $\tau$ (la energ\'ia se
-reparte en bins vecinos en una escala temporal $\tau$).
-
-\begin{remark}[Interpretaci\'on f\'isica: no es una aproximaci\'on num\'erica]
-Mantener $\tau>0$ \textbf{finito} no es un artificio de regularizaci\'on: es el
-\emph{modelo f\'isico} del pulso real del l\'aser/detector (que tiene anchura
-temporal no nula). Por tanto $g^{\tau,\kappa,\beta}$ es un \textbf{modelo exacto}
-con \textbf{derivada exacta} \eqref{eq:dSij}, no una diferencia finita de un
-modelo idealizado. El l\'imite duro $\tau\to0$ es la idealizaci\'on; el modelo
-suave es, si acaso, m\'as fiel.
-\end{remark}
-
-%------------------------------------------------------------------------------
-\subsection{Intercambio l\'imite--derivada: por qu\'e no se ``deriva el modelo duro''}
-\label{sec:intercambio}
-%------------------------------------------------------------------------------
-
-\begin{theorem}[Derivada del l\'imite bajo convergencia uniforme de las derivadas]\label{thm:uniforme}
-Sea $I\subseteq\R$ un intervalo y $f_n:I\to\R$ derivables con $f_n\to f$
-puntualmente y $f_n'\to \varphi$ \textbf{uniformemente} en $I$. Entonces $f$ es
-derivable y $f'=\varphi$ (es decir, $\lim_n f_n'=(\lim_n f_n)'$).
-\end{theorem}
-
-\begin{remark}[Aplicaci\'on y su l\'imite]
-El Teorema~\ref{thm:uniforme} \emph{s\'i} legitima derivar $g^{\tau,\kappa,\beta}$
-para cada terna fija de par\'ametros de suavizado (es lo que hacemos). Lo que
-\textbf{no} puede hacerse es intercambiar el l\'imite duro con la derivada: cerca
-de una isocrona o de la frontera de sombra, las derivadas
-$\partial_{\psi_m}g^{\tau,\kappa,\beta}$ \emph{no} convergen uniformemente cuando
-$\tau\to0,\kappa\to\infty$ (por \eqref{eq:dSij}, el pico gaussiano escala como
-$1/\tau$; por Prop.~\ref{prop:fd}, la secante escala como $1/\delta$), de modo que
-la hip\'otesis del Teorema~\ref{thm:uniforme} falla y no existe una derivada
-cl\'asica del modelo duro que recuperar. \'Esta es la justificaci\'on rigurosa de
-\emph{mantener} $\tau,\kappa,\beta$ finitos y derivar el modelo suave.
-\end{remark}
-
-%------------------------------------------------------------------------------
-\subsection{Cierre: derivadas simb\'olicas exactas frente a diferencias finitas}
-\label{sec:cierre-analisis}
-%------------------------------------------------------------------------------
-
-El desarrollo anterior justifica formalmente la elecci\'on de implementaci\'on.
-El Teorema~\ref{thm:g-smooth} y las Prop.~\ref{prop:Sij}--\ref{prop:softplus}
-garantizan que $g^{\tau,\kappa,\beta}_q$ posee \textbf{derivadas parciales
-cerradas de todo orden}, obtenidas por composici\'on (regla de la cadena) de las
-derivadas elementales $\erf'$, $\sigma_\kappa'$, $\softplus_\beta'$ y de las
-distancias/cosenos. Esto es exactamente lo que calcula \texttt{sympy} en
-\texttt{crb\_analytic\_forward.py} y lo que valida el chequeo anal\'itico-vs-FD de
-la Sec.~\ref{sec:validacion} (error m\'aximo relativo $\approx4.7\times10^{-10}$):
-la coincidencia con las diferencias finitas del \emph{mismo} forward suave
-confirma que las f\'ormulas cerradas \eqref{eq:dSij} y sus an\'alogas son correctas.
-Por contraste (Sec.~\ref{sec:diagnostico}), aplicar diferencias finitas al modelo
-\emph{duro} tropieza con la Prop.~\ref{prop:fd}: mesetas de gradiente nulo y
-secantes $\propto1/\delta$ sobre los saltos. La suavizaci\'on por
-\emph{mollifier}, sigmoide y softplus convierte esos saltos en transiciones
-$C^\infty$ con derivada exacta y bien condicionada (Cor.~\ref{cor:fisher},
-Prop.~\ref{prop:crb-smooth}), que es lo que hace posible un CRB diferenciable y
-estable, ilustrado en las figuras de la Sec.~\ref{sec:resultados}.
 
 %==============================================================================
 \section{Resultados y comparaci\'on (anal\'itico vs FD)}
@@ -1104,39 +1061,41 @@ pipeline original,
     \qquad
     \varphi\in\{30^\circ,60^\circ,90^\circ,120^\circ,150^\circ\},
 \]
-en dos variantes: \emph{fixed\_h} (se estiman $[\rho,\varphi]$, Fisher
-$2\times2$) y \emph{with\_h} (se estiman $[\rho,\varphi,h]$, Fisher $3\times3$),
-con elipses $3\sigma$ \textbf{marginales} en $(\rho,\varphi)$ (script
-\texttt{generate\_analytic\_crb\_plots.py}). Las burbujas anal\'iticas se
-muestran en la Fig.~\ref{fig:analytic-regions}.
+en dos variantes: \emph{fixed\_h} ($[\rho,\varphi]$, Fisher $2\times2$) y
+\emph{with\_h} ($[\rho,\varphi,h]$, Fisher $3\times3$), con elipses $3\sigma$
+marginales en $(\rho,\varphi)$ (\texttt{generate\_analytic\_crb\_plots.py}). Las
+burbujas anal\'iticas est\'an en la Fig.~\ref{fig:analytic-regions}.
 
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.86\textwidth]{../plots/crb_standard_regions_analytic.png}
-\caption{CRB$(\rho,\varphi,h)$ \emph{anal\'itico}: regiones $3\sigma$ en
-$(\rho,\varphi)$. Elipses (burbujas) generadas con derivadas cerradas.
-Archivo \texttt{plots/crb\_standard\_regions\_analytic.png}.}
+\caption{CRB$(\rho,\varphi,h)$ \emph{anal\'itico} (dos rebotes, cuatro cosenos,
+$4\pi^2$): regiones $3\sigma$ en $(\rho,\varphi)$, generadas con derivadas
+cerradas. Archivo \texttt{plots/crb\_standard\_regions\_analytic.png}.}
 \label{fig:analytic-regions}
 \end{figure}
 
 \subsection{Superposici\'on anal\'itico vs FD}
 Comparamos contra el m\'etodo rasterizado / diferencias finitas, cuyo grid se
 carga de \texttt{plots/crb\_grid\_results.pkl} (generado por
-\texttt{regenerate\_crb\_standard\_regions.py}). Las superposiciones usan el
-grid FD disponible en la cache: aqu\'i el grid \emph{fixed\_h} de dos
-par\'ametros $[\rho,\varphi]$, que da una comparaci\'on \textbf{apples-to-apples}
-(ambos m\'etodos estiman los mismos dos par\'ametros); el grid \emph{with\_h} de
-tres par\'ametros es an\'alogo. La leyenda de la Tabla~\ref{tab:avf} indica qu\'e
-grid se us\'o.
+\texttt{regenerate\_crb\_standard\_regions.py}).
+
+\begin{remark}[Las figuras de comparaci\'on corresponden a la corrida FD previa]
+No re-ejecutamos el rasterizador (cuesta horas). Las superposiciones usan el
+grid FD ya disponible en la cache (\emph{fixed\_h}, dos par\'ametros
+$[\rho,\varphi]$, comparaci\'on \emph{apples-to-apples}). La \textbf{forma y
+orientaci\'on} de las elipses FD son estables entre corridas, de modo que la
+comparaci\'on de \emph{forma} sigue siendo v\'alida aunque el forward anal\'itico
+se haya reescrito.
+\end{remark}
 
 \begin{remark}[Escalas no comparables]
 Las \textbf{magnitudes absolutas} del CRB anal\'itico y del FD \textbf{no} son
-directamente comparables: son \emph{modelos distintos} (faceta puntual
-anal\'itica con ganancia $G=10^5$ y geometr\'ia fija, frente al render de malla
-del simulador). Por eso mostramos dos superposiciones: (a) tal cual, y (b)
-\emph{normalizada en forma} (escalando las semiejes de cada m\'etodo por un
-factor com\'un para igualar su $\sigma_\rho$ mediana), que compara
-\textbf{orientaci\'on y relaci\'on de aspecto} sin depender del tama\~no.
+directamente comparables: son \emph{modelos distintos} (faceta puntual con
+ganancia $G$ y \'area efectiva constante, frente al render de malla). Por eso
+mostramos dos superposiciones: (a) tal cual, y (b) \emph{normalizada en forma}
+(igualando la $\sigma_\rho$ mediana), que compara \textbf{orientaci\'on y
+aspecto} sin depender del tama\~no.
 \end{remark}
 
 \begin{figure}[ht]
@@ -1144,8 +1103,8 @@ factor com\'un para igualar su $\sigma_\rho$ mediana), que compara
 \IfFileExists{../plots/crb_regions_analytic_vs_fd.png}{%
 \includegraphics[width=0.72\textwidth]{../plots/crb_regions_analytic_vs_fd.png}%
 }{\textit{(Pendiente: ejecutar la comparaci\'on con la cache FD disponible.)}}
-\caption{(a) Superposici\'on anal\'itico (C2) vs FD (C3) a \emph{magnitud real}.
-Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
+\caption{(a) Superposici\'on anal\'itico (dos rebotes) vs FD a \emph{magnitud
+real}. Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
 \label{fig:avf-abs}
 \end{figure}
 
@@ -1155,16 +1114,15 @@ Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
 \includegraphics[width=0.72\textwidth]{../plots/crb_regions_analytic_vs_fd_shapenorm.png}%
 }{\textit{(Pendiente: ejecutar la comparaci\'on con la cache FD disponible.)}}
 \caption{(b) Superposici\'on \emph{normalizada en forma} ($\sigma_\rho$ mediana
-igualada): compara orientaci\'on y aspecto de las elipses, no el tama\~no.
+igualada): compara orientaci\'on y aspecto, no el tama\~no.
 Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd\_shapenorm.png}.}
 \label{fig:avf-shape}
 \end{figure}
 
 \subsection{Tabla num\'erica resumida}
-La Tabla~\ref{tab:avf} resume, para el grid \emph{with\_h}, las desviaciones
-$\sigma_\rho,\sigma_\varphi,\sigma_h$ y la \textbf{relaci\'on de aspecto}
-(eje mayor/eje menor de la elipse $3\sigma$ en $(\rho,\varphi)$) de cada
-m\'etodo; la tabla completa (incluida la inclinaci\'on \emph{tilt}) est\'a en
+La Tabla~\ref{tab:avf} resume las desviaciones y la \textbf{relaci\'on de
+aspecto} (eje mayor/menor de la elipse $3\sigma$) de cada m\'etodo; la tabla
+completa (con la inclinaci\'on \emph{tilt}) est\'a en
 \texttt{docs/analytic\_vs\_fd\_comparison.txt}.
 
 \IfFileExists{analytic_vs_fd_table.tex}{\input{analytic_vs_fd_table.tex}}{%
@@ -1172,23 +1130,21 @@ m\'etodo; la tabla completa (incluida la inclinaci\'on \emph{tilt}) est\'a en
 con la cache FD disponible.)}}
 
 \subsection{\textup{?`}Cu\'al elipse es ``mejor''?}
-Aqu\'i ``mejor'' se refiere a la \textbf{calidad/suavidad de la derivada} y a la
-\textbf{sensatez de la forma}, \emph{no} a la magnitud absoluta:
+``Mejor'' aqu\'i es \textbf{calidad/suavidad de la derivada} y \textbf{sensatez de
+la forma}, \emph{no} la magnitud absoluta:
 \begin{enumerate}[nosep]
     \item \textbf{Suavidad / condicionamiento.} El forward anal\'itico tiene
     derivadas \emph{exactas} ($C^\infty$). El Jacobiano FD se calcula sobre un
-    forward con escalones (la cuantizaci\'on $\lceil\cdot\rceil$ y la m\'ascara
-    $\texttt{xint}>0$ son constantes a trozos), de modo que la diferencia finita
-    mezcla mesetas planas (derivada nula) con saltos de bin, introduciendo ruido
-    de discretizaci\'on y dependencia del paso $\delta$. La elipse anal\'itica es
-    la \textbf{mejor condicionada} (Fisher m\'as estable).
-    \item \textbf{Forma / orientaci\'on.} Ambos m\'etodos dan elipses finas en
-    \'angulo (resoluci\'on azimutal de la arista) y m\'as anchas en rango, f\'isicamente
-    coherente; la orientaci\'on es consistente salvo el ruido FD.
-    \item \textbf{Salvedad.} El modelo de faceta puntual \emph{no} reproduce el
+    forward con escalones ($\lceil\cdot\rceil$ y $\texttt{xint}>0$ constantes a
+    trozos), mezclando mesetas planas y saltos de bin (ruido de discretizaci\'on,
+    dependencia de $\delta$). La elipse anal\'itica es la \textbf{mejor
+    condicionada}.
+    \item \textbf{Forma / orientaci\'on.} Ambos dan elipses finas en \'angulo
+    (resoluci\'on azimutal de la arista) y m\'as anchas en rango; la orientaci\'on
+    es consistente salvo el ruido FD.
+    \item \textbf{Salvedad.} La faceta puntual \emph{no} reproduce el
     rasterizador; su CRB depende de $G,\beta,\kappa,\tau$ y de la geometr\'ia
-    fija. La comparaci\'on honesta es de \emph{forma} (Fig.~\ref{fig:avf-shape}),
-    no de tama\~no.
+    fija. La comparaci\'on honesta es de \emph{forma} (Fig.~\ref{fig:avf-shape}).
 \end{enumerate}
 \textbf{Veredicto:} para un CRB \emph{diferenciable}, la elipse \textbf{anal\'itica}
 es preferible por derivadas exactas y Fisher mejor condicionada; el FD sigue
@@ -1199,34 +1155,38 @@ siendo valioso como verificaci\'on independiente y como modelo de malla completo
 \label{sec:conclusion}
 %==============================================================================
 
-Partiendo del render rasterizado --- no diferenciable por
-$\lceil\cdot\rceil$, umbral de ocultamiento y \emph{clamps} ---, construimos un
-forward de faceta $C^\infty$ reemplazando cada discontinuidad por su an\'alogo
-cerrado: la masa de Dirac en un bin por la \textbf{integral gaussiana}
+Partimos de la \textbf{funci\'on que usa el simulador} (celda~8: dos rebotes,
+cuatro cosenos, $4\pi^2$, \texttt{ceil}, \texttt{xint}$>0$) --- no del modelo del
+\emph{writeup} --- y la volvimos $C^\infty$ reemplazando sus tres
+discontinuidades por an\'alogos cerrados, justificando \emph{por qu\'e} cada
+elecci\'on: la masa de Dirac en un bin por la \textbf{integral gaussiana}
 \eqref{eq:erf-bin} (diferencia de $\erf$, el coraz\'on de la
-diferenciabilidad), el Heaviside por una \textbf{sigmoide} \eqref{eq:sigmoid}, y
-$\max(0,\cdot)$ por \textbf{softplus} \eqref{eq:softplus}. Con ello:
+diferenciabilidad), el Heaviside de la \texttt{xint} por una \textbf{sigmoide}
+\eqref{eq:sigmoid}, y los cuatro $\max(0,\cdot)$ por \textbf{softplus}
+\eqref{eq:softplus}. Con ello:
 \begin{itemize}[nosep]
     \item las derivadas $\partial g/\partial\rho,\partial g/\partial\varphi,
-          \partial g/\partial h$ son \textbf{exactas} y se obtienen
-          simb\'olicamente (\texttt{sympy}), sin ajustar el paso $\delta$;
-    \item $g_q$ y sus derivadas est\'an \textbf{bien definidas en $0$} gracias al
-          fondo $b>0$, que hace innecesario el piso $\varepsilon$;
+          \partial g/\partial h$ son \textbf{exactas} (\texttt{sympy}), sin
+          ajustar el paso $\delta$;
+    \item $g_q$ y sus derivadas est\'an \textbf{bien definidas en $0$} por el
+          fondo $b>0$ (sin piso $\varepsilon$);
     \item la Fisher y el CRB \eqref{eq:fisher}--\eqref{eq:crb} conservan la
-          estructura del \emph{writeup};
+          estructura Poisson;
     \item la validaci\'on anal\'itico-vs-FD da error m\'aximo relativo
           $\sim5\times10^{-10}$.
 \end{itemize}
-La salvedad importante: este modelo anal\'itico de faceta puntual
-\textbf{difiere} del rasterizador de malla, y sus valores de CRB dependen de la
-ganancia $G$ y de los par\'ametros de suavizado $(\beta,\kappa,\tau)$, que
-recuperan el l\'imite duro cuando $\beta,\kappa\to\infty$ y $\tau\to0$.
+Salvedades: el modelo anal\'itico de faceta puntual \textbf{difiere en magnitud}
+del rasterizador de malla; el \'area del tri\'angulo se dobla en $G$ como
+\textbf{\'area efectiva constante} (Obs.~\ref{rem:area}); la geometr\'ia y la
+ganancia son fijas; se asume $\nabla d_i\neq\vect0$ (Hip.~\ref{as:geom}) e
+$\matr{I}\succ0$; y los par\'ametros $(\beta,\kappa,\tau)$ recuperan el l\'imite
+duro cuando $\beta,\kappa\to\infty$, $\tau\to0$.
 
 %------------------------------------------------------------------------------
 \paragraph{Archivos.}
-\texttt{crb\_analytic\_forward.py} (forward + Jacobiano simb\'olico + CRB),
-\texttt{validate\_analytic\_forward.py} (validaci\'on anal\'itico vs FD),
-este documento \texttt{docs/analytic\_forward\_crb.tex}.
+\texttt{crb\_analytic\_forward.py} (forward de dos rebotes $+$ Jacobiano
+simb\'olico $+$ CRB), \texttt{validate\_analytic\_forward.py} (validaci\'on
+anal\'itico vs FD), este documento \texttt{docs/analytic\_forward\_crb.tex}.
 Reutiliza (sin modificar) \emph{helpers} de \texttt{crb\_polar\_functions.py}.
 
 \end{document}
