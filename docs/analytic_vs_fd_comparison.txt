@@ -1,0 +1,53 @@
+Comparacion CRB analitico vs FD (rasterizado)  --  grid fixed_h [rho,phi]
+======================================================================================================================
+NOTA: las magnitudes absolutas NO son comparables (modelos distintos: faceta
+puntual analitica, ganancia G=1e5, geometria fija; vs render de malla rasterizado).
+Lo comparable es la FORMA: relacion de aspecto (aspect = eje_mayor/eje_menor)
+y la inclinacion (tilt) de la elipse 3-sigma en el plano (rho, phi).
+======================================================================================================================
+ rho  phi |  A:sig_rho A:sig_phi  A:sig_h  A:asp  A:tilt |  F:sig_rho F:sig_phi  F:sig_h  F:asp  F:tilt
+-------------------------------------------------------------------------------------------------------
+0.50   30 |   0.005255     1.733      nan   6.95    95.6 |  0.0006859    0.5091      nan  19.21    93.3
+0.50   60 |   0.004762     1.163      nan   4.50    94.3 |  0.0006779    0.4401      nan  14.03    93.0
+0.50   90 |   0.005615     1.159      nan   3.68    93.3 |  0.0007805    0.3846      nan   9.61    93.0
+0.50  120 |   0.008278     1.015      nan   2.16    93.4 |   0.001116    0.4116      nan   7.08    93.7
+0.50  150 |    0.01454     1.463      nan   1.76    92.5 |   0.001847    0.5484      nan   5.70    94.6
+1.00   30 |   0.005748     2.256      nan  10.12    96.1 |   0.003406     2.012      nan  13.06    93.4
+1.00   60 |   0.004987      1.57      nan   6.27    95.0 |   0.003448     1.478      nan   8.23    93.2
+1.00   90 |    0.00585     1.639      nan   5.19    93.9 |   0.004197     1.416      nan   6.19    93.0
+1.00  120 |   0.008383     1.418      nan   3.01    93.9 |   0.006299      1.46      nan   4.20    93.8
+1.00  150 |    0.01434     2.078      nan   2.56    93.4 |    0.01086     2.214      nan   3.70    94.4
+1.50   30 |     0.0102     4.115      nan  11.23    96.3 |    0.01207     6.763      nan  12.10    93.4
+1.50   60 |    0.00874     2.983      nan   7.03    95.1 |    0.01215     4.687      nan   7.23    93.1
+1.50   90 |    0.01025      3.31      nan   6.09    93.9 |    0.01486     4.664      nan   5.66    92.7
+1.50  120 |    0.01454     2.828      nan   3.47    93.5 |    0.02185     4.717      nan   3.84    93.0
+1.50  150 |    0.02478     4.283      nan   3.05    92.8 |    0.03747     7.432      nan   3.51    92.8
+-------------------------------------------------------------------------------------------------------
+Aspecto medio (mayor/menor)  analitico=5.14   FD=8.22
+
+CONCLUSION -- que elipse es 'mejor'
+-----------------------------------
+'Mejor' aqui = calidad/suavidad de la derivada y sensatez de la forma, NO la
+magnitud absoluta (las escalas no son comparables por ser modelos distintos).
+
+1) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS
+   (sympy), C-infinito por construccion. El Jacobiano FD del rasterizador se
+   calcula sobre un forward con escalones: la cuantizacion temporal ceil(.) y
+   la mascara de ocultamiento xint>0 son constantes-a-trozos, de modo que la
+   diferencia finita mezcla mesetas planas (derivada 0) con saltos de bin,
+   introduciendo ruido de discretizacion y sensibilidad al paso delta. La
+   elipse analitica es por tanto la mejor CONDICIONADA (Fisher mas estable).
+
+2) Forma/orientacion: ambos metodos producen elipses (burbujas) finas en
+   angulo -- la resolucion azimutal que aporta la arista ocluyente -- y mas
+   anchas en rango, coherente con la fisica del borde. La orientacion
+   (columna tilt) es consistente entre metodos salvo el ruido FD.
+
+3) Salvedad: el modelo analitico de faceta puntual NO reproduce el
+   rasterizador de malla; su CRB depende de G, beta, kappa, tau y de la
+   geometria fija. Por eso la comparacion honesta es de FORMA (overlay
+   shape-normalizado), no de tamano.
+
+VEREDICTO: para el proposito de un CRB diferenciable, la elipse ANALITICA es
+preferible por derivadas exactas y Fisher mejor condicionada; el FD sigue
+siendo util como verificacion independiente y como el modelo de malla completo.

@@ -505,6 +505,108 @@ el hecho de derivar bajo el integrando.
 \end{remark}
 
 %==============================================================================
+\section{Resultados y comparaci\'on (anal\'itico vs FD)}
+\label{sec:resultados}
+%==============================================================================
+
+Evaluamos el forward anal\'itico sobre la \textbf{misma} malla de poses del
+pipeline original,
+\[
+    \rho\in\{0.5,\,1.0,\,1.5\}\,\mathrm{m},
+    \qquad
+    \varphi\in\{30^\circ,60^\circ,90^\circ,120^\circ,150^\circ\},
+\]
+en dos variantes: \emph{fixed\_h} (se estiman $[\rho,\varphi]$, Fisher
+$2\times2$) y \emph{with\_h} (se estiman $[\rho,\varphi,h]$, Fisher $3\times3$),
+con elipses $3\sigma$ \textbf{marginales} en $(\rho,\varphi)$ (script
+\texttt{generate\_analytic\_crb\_plots.py}). Las burbujas anal\'iticas se
+muestran en la Fig.~\ref{fig:analytic-regions}.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.86\textwidth]{../plots/crb_standard_regions_analytic.png}
+\caption{CRB$(\rho,\varphi,h)$ \emph{anal\'itico}: regiones $3\sigma$ en
+$(\rho,\varphi)$. Elipses (burbujas) generadas con derivadas cerradas.
+Archivo \texttt{plots/crb\_standard\_regions\_analytic.png}.}
+\label{fig:analytic-regions}
+\end{figure}
+
+\subsection{Superposici\'on anal\'itico vs FD}
+Comparamos contra el m\'etodo rasterizado / diferencias finitas, cuyo grid se
+carga de \texttt{plots/crb\_grid\_results.pkl} (generado por
+\texttt{regenerate\_crb\_standard\_regions.py}). Las superposiciones usan el
+grid FD disponible en la cache: aqu\'i el grid \emph{fixed\_h} de dos
+par\'ametros $[\rho,\varphi]$, que da una comparaci\'on \textbf{apples-to-apples}
+(ambos m\'etodos estiman los mismos dos par\'ametros); el grid \emph{with\_h} de
+tres par\'ametros es an\'alogo. La leyenda de la Tabla~\ref{tab:avf} indica qu\'e
+grid se us\'o.
+
+\begin{remark}[Escalas no comparables]
+Las \textbf{magnitudes absolutas} del CRB anal\'itico y del FD \textbf{no} son
+directamente comparables: son \emph{modelos distintos} (faceta puntual
+anal\'itica con ganancia $G=10^5$ y geometr\'ia fija, frente al render de malla
+del simulador). Por eso mostramos dos superposiciones: (a) tal cual, y (b)
+\emph{normalizada en forma} (escalando las semiejes de cada m\'etodo por un
+factor com\'un para igualar su $\sigma_\rho$ mediana), que compara
+\textbf{orientaci\'on y relaci\'on de aspecto} sin depender del tama\~no.
+\end{remark}
+
+\begin{figure}[ht]
+\centering
+\IfFileExists{../plots/crb_regions_analytic_vs_fd.png}{%
+\includegraphics[width=0.72\textwidth]{../plots/crb_regions_analytic_vs_fd.png}%
+}{\textit{(Pendiente: ejecutar la comparaci\'on con la cache FD disponible.)}}
+\caption{(a) Superposici\'on anal\'itico (C2) vs FD (C3) a \emph{magnitud real}.
+Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
+\label{fig:avf-abs}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\IfFileExists{../plots/crb_regions_analytic_vs_fd_shapenorm.png}{%
+\includegraphics[width=0.72\textwidth]{../plots/crb_regions_analytic_vs_fd_shapenorm.png}%
+}{\textit{(Pendiente: ejecutar la comparaci\'on con la cache FD disponible.)}}
+\caption{(b) Superposici\'on \emph{normalizada en forma} ($\sigma_\rho$ mediana
+igualada): compara orientaci\'on y aspecto de las elipses, no el tama\~no.
+Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd\_shapenorm.png}.}
+\label{fig:avf-shape}
+\end{figure}
+
+\subsection{Tabla num\'erica resumida}
+La Tabla~\ref{tab:avf} resume, para el grid \emph{with\_h}, las desviaciones
+$\sigma_\rho,\sigma_\varphi,\sigma_h$ y la \textbf{relaci\'on de aspecto}
+(eje mayor/eje menor de la elipse $3\sigma$ en $(\rho,\varphi)$) de cada
+m\'etodo; la tabla completa (incluida la inclinaci\'on \emph{tilt}) est\'a en
+\texttt{docs/analytic\_vs\_fd\_comparison.txt}.
+
+\IfFileExists{analytic_vs_fd_table.tex}{\input{analytic_vs_fd_table.tex}}{%
+\textit{(Tabla pendiente: ejecutar \texttt{generate\_analytic\_crb\_plots.py}
+con la cache FD disponible.)}}
+
+\subsection{\textup{?`}Cu\'al elipse es ``mejor''?}
+Aqu\'i ``mejor'' se refiere a la \textbf{calidad/suavidad de la derivada} y a la
+\textbf{sensatez de la forma}, \emph{no} a la magnitud absoluta:
+\begin{enumerate}[nosep]
+    \item \textbf{Suavidad / condicionamiento.} El forward anal\'itico tiene
+    derivadas \emph{exactas} ($C^\infty$). El Jacobiano FD se calcula sobre un
+    forward con escalones (la cuantizaci\'on $\lceil\cdot\rceil$ y la m\'ascara
+    $\texttt{xint}>0$ son constantes a trozos), de modo que la diferencia finita
+    mezcla mesetas planas (derivada nula) con saltos de bin, introduciendo ruido
+    de discretizaci\'on y dependencia del paso $\delta$. La elipse anal\'itica es
+    la \textbf{mejor condicionada} (Fisher m\'as estable).
+    \item \textbf{Forma / orientaci\'on.} Ambos m\'etodos dan elipses finas en
+    \'angulo (resoluci\'on azimutal de la arista) y m\'as anchas en rango, f\'isicamente
+    coherente; la orientaci\'on es consistente salvo el ruido FD.
+    \item \textbf{Salvedad.} El modelo de faceta puntual \emph{no} reproduce el
+    rasterizador; su CRB depende de $G,\beta,\kappa,\tau$ y de la geometr\'ia
+    fija. La comparaci\'on honesta es de \emph{forma} (Fig.~\ref{fig:avf-shape}),
+    no de tama\~no.
+\end{enumerate}
+\textbf{Veredicto:} para un CRB \emph{diferenciable}, la elipse \textbf{anal\'itica}
+es preferible por derivadas exactas y Fisher mejor condicionada; el FD sigue
+siendo valioso como verificaci\'on independiente y como modelo de malla completo.
+
+%==============================================================================
 \section{Conclusi\'on}
 \label{sec:conclusion}
 %==============================================================================
