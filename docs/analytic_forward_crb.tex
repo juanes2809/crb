@@ -1,0 +1,542 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+\lstset{
+  language=Python,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\bfseries,
+  commentstyle=\itshape\color{gray},
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  aboveskip=0.6em,
+  belowskip=0.6em,
+}
+
+\theoremstyle{definition}
+\newtheorem{definition}{Definici\'on}
+\newtheorem{remark}{Observaci\'on}
+
+\newcommand{\vect}[1]{\boldsymbol{#1}}
+\newcommand{\matr}[1]{\mathbf{#1}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\softplus}{\operatorname{softplus}}
+\newcommand{\erf}{\operatorname{erf}}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\Cov}{Cov}
+\DeclareMathOperator{\sgn}{sgn}
+
+\title{Un forward anal\'itico \emph{diferenciable} para el CRB de la
+c\'amara de esquina activa\\[4pt]
+\large Del render rasterizado a derivadas cerradas (Camino A)}
+\author{Obstacle Detection Study}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Este documento explica, en orden pedag\'ogico, c\'omo construimos un
+\textbf{forward anal\'itico diferenciable} de la faceta oculta para el c\'alculo
+del Cram\'er--Rao (CRB), con \textbf{derivadas parciales cerradas}, sin modificar
+el simulador rasterizado existente (\texttt{pyerti.py},
+\texttt{simulation\_polar\_clean.ipynb}, \texttt{crb\_polar\_functions.py}).
+Partimos del forward \emph{actual} --- un render rasterizado cuyas fuentes de
+no diferenciabilidad (cuantizaci\'on temporal con \texttt{ceil}, ocultamiento
+por umbral duro, \emph{clamps} \texttt{max}$(0,\cdot)$, dep\'osito en p\'ixeles y
+bins enteros) impiden escribir $\partial g/\partial\vect{\psi}$ en forma
+cerrada --- y lo reemplazamos, pieza por pieza, por an\'alogos suaves de clase
+$C^\infty$: la masa de Dirac en un bin se convierte en la integral anal\'itica de
+un pulso gaussiano (diferencia de $\erf$), el ocultamiento por umbral en una
+sigmoide de penumbra, y los \emph{clamps} en \emph{softplus}. Las derivadas se
+obtienen \textbf{simb\'olicamente} con \texttt{sympy} (an\'alogo al Mathematica
+del \emph{writeup}) y se validan contra diferencias finitas del mismo forward
+suave, con error m\'aximo relativo $\sim\!5\times10^{-10}$. El c\'odigo est\'a en
+\texttt{crb\_analytic\_forward.py} y la validaci\'on en
+\texttt{validate\_analytic\_forward.py}.
+\end{abstract}
+
+\tableofcontents
+\bigskip\hrule\bigskip
+
+%==============================================================================
+\section{Punto de partida: el forward rasterizado y por qu\'e no es diferenciable}
+\label{sec:partida}
+%==============================================================================
+
+El c\'alculo actual del CRB (documentado en \texttt{sustento\_teorico\_crb.tex})
+usa como forward el simulador de transporte de luz \texttt{simulation} (motor
+\texttt{pyerti.py}). Para una pose $\vect{\psi}=(\rho,\varphi,h)$ produce un cubo
+transitorio esperado $y\in\R^{H\times W\times T}$ (p\'ixeles SPAD $\times$ bins de
+tiempo), y se forma $g=\operatorname{vec}(y+b)$ con fondo $b>0$.
+
+El simulador acumula, para cada tri\'angulo del \emph{mesh} de centro
+$\vect{c}$ y cada muestra de piso $\vect{p}_f$, una contribuci\'on de la forma
+(v\'ease \texttt{pyerti.py}, l\'ineas $\sim$278--312):
+\begin{equation}
+    \Delta y
+    \;\propto\;
+    I_{\mathrm{laser}}\, A\,
+    \frac{[\hat{\vect n}\!\cdot\!\hat{\vect u}_1]_+\,
+          [\hat{\vect n}\!\cdot\!\hat{\vect u}_2]_+\,
+          [\hat{\vect n}_l\!\cdot\!\hat{\vect u}_3]_+\,
+          [\hat{\vect n}_f\!\cdot\!\hat{\vect u}_4]_+}
+         {4\pi^2\, d_1^2\, d_2^2},
+    \label{eq:raster-dy}
+\end{equation}
+depositada \'unicamente en el bin entero de llegada
+\begin{equation}
+    j \;=\; \left\lceil \frac{d_1+d_2}{c\,\Delta t} \right\rceil ,
+    \qquad d_1=\|\vect{p}_l-\vect{c}\|,\quad d_2=\|\vect{p}_f-\vect{c}\|,
+    \label{eq:raster-ceil}
+\end{equation}
+y solo para los p\'ixeles \emph{no ocluidos}, seleccionados por la m\'ascara dura
+\begin{equation}
+    \texttt{noc}
+    \;=\;
+    \bigl(\texttt{xint}\ \text{finito}\bigr)\ \land\ (\texttt{xint}>0),
+    \qquad
+    \texttt{xint}=-b/m ,
+    \label{eq:raster-noc}
+\end{equation}
+donde $m,b$ definen la recta faceta$\to$p\'ixel en el plano $XY$.
+
+\begin{remark}[Por qu\'e $\partial g/\partial\vect{\psi}$ no existe en forma cerrada]
+Tres operaciones de \eqref{eq:raster-dy}--\eqref{eq:raster-noc} son
+\textbf{no diferenciables}:
+\begin{enumerate}[nosep]
+    \item \textbf{Cuantizaci\'on temporal} \eqref{eq:raster-ceil}: la funci\'on
+    $\lceil\cdot\rceil$ es constante a trozos con saltos unitarios. Su derivada
+    es cero casi en todas partes y una \emph{delta} en los saltos: al mover
+    $\vect{\psi}$, la masa salta discretamente de un bin al siguiente.
+    \item \textbf{Ocultamiento por umbral} \eqref{eq:raster-noc}: la indicatriz
+    $\mathbf{1}\{\texttt{xint}>0\}$ es un Heaviside muestreado; su derivada es
+    una delta en la frontera iluminado/sombra.
+    \item \textbf{\emph{Clamps}} $[\,\cdot\,]_+=\max(0,\cdot)$ en el
+    \emph{foreshortening}: continuos pero no derivables en $0$ (codo).
+\end{enumerate}
+Adem\'as el dep\'osito en \'indices enteros de p\'ixel/bin es intr\'insecamente
+discreto. Por eso el pipeline vigente aproxima el Jacobiano por
+\textbf{diferencias finitas} centrales sobre \emph{todos} los bins, usa un fondo
+$b$ y un piso $\varepsilon$ (\texttt{fisher\_eps}) para que $1/g$ sea finito, y
+debe elegir con cuidado los pasos $\delta$ (p.\,ej.\ $\delta\rho=0.01$\,m,
+$\delta\varphi=0.5^\circ$, $\delta h=0.01$\,m). Este es el objeto que queremos
+\emph{volver diferenciable}.
+\end{remark}
+
+%==============================================================================
+\section{El modelo continuo del \emph{writeup}}
+\label{sec:continuo}
+%==============================================================================
+
+El \emph{writeup} de la c\'amara de esquina activa (Seidel \emph{et al.})
+parte de un modelo \textbf{continuo}. Con la faceta oculta puntual en
+$\vect{p}_s=[\rho\cos\varphi,\ \rho\sin\varphi,\ h]$ y normal
+$\hat{\vect n}_s=[-\cos\varphi,-\sin\varphi,0]$, l\'aser en $\vect{p}_l$
+(normal $\hat{\vect n}_l$), c\'amara en $\vect{p}_c$ y punto de piso
+$\vect{p}_f$ (normal $\hat{\vect n}_f$), la luz saliente en el instante $t$ es
+(ec.~1 del \emph{writeup})
+\begin{equation}
+    L_h(\vect{p}_f,t)
+    =
+    \frac{\alpha\, H(\pi+\theta-\varphi)\,
+          f(\vect{p}_c,\vect{p}_s,\vect{p}_l,\vect{p}_f)\,
+          s\!\left(t-\tfrac{\|\vect{p}_s-\vect{p}_l\|+\|\vect{p}_s-\vect{p}_f\|}{c}\right)}
+         {8\pi^3\,\|\vect{p}_c-\vect{p}_f\|^2\,
+          \|\vect{p}_s-\vect{p}_l\|^2\,\|\vect{p}_s-\vect{p}_f\|^2},
+    \label{eq:Lh}
+\end{equation}
+con $s(\cdot)$ el pulso, $H$ el escal\'on de Heaviside, $\alpha$ el albedo, y
+$f$ el \emph{foreshortening} (producto de cinco cosenos, ec.~2):
+\begin{equation}
+    f
+    =
+    \frac{\hat{\vect n}_f\!\cdot\!(\vect{p}_c-\vect{p}_f)}{\|\vect{p}_c-\vect{p}_f\|}\,
+    \frac{\hat{\vect n}_f\!\cdot\!(\vect{p}_s-\vect{p}_f)}{\|\vect{p}_f-\vect{p}_s\|}\,
+    \frac{\hat{\vect n}_s\!\cdot\!(\vect{p}_f-\vect{p}_s)}{\|\vect{p}_f-\vect{p}_s\|}\,
+    \frac{\hat{\vect n}_s\!\cdot\!(\vect{p}_l-\vect{p}_s)}{\|\vect{p}_l-\vect{p}_s\|}\,
+    \frac{\hat{\vect n}_l\!\cdot\!(\vect{p}_s-\vect{p}_l)}{\|\vect{p}_l-\vect{p}_s\|}.
+    \label{eq:foreshortening}
+\end{equation}
+La tasa de Poisson de la medici\'on $q=(i,j)$ (p\'ixel $i$, bin $j$) es la
+integral sobre el p\'ixel y el bin (ec.~3):
+\begin{equation}
+    y_q
+    =
+    \int_{(j-1)\Delta t}^{j\Delta t}\!\!\int_{\vect{p}\in P_i}
+    L_h(\vect{p}_f,t)\,d\vect{p}\,dt,
+    \qquad
+    g_q=y_q+b_q,\quad b_q>0.
+    \label{eq:yq}
+\end{equation}
+El \emph{writeup} deriva $\partial y_q/\partial\Psi_m$ \emph{bajo el integrando}
+con Mathematica (ecs.~9--11). Nuestro objetivo es reproducir esa idea con un
+forward propio, expl\'icito y diferenciable en c\'odigo.
+
+%==============================================================================
+\section{Volviendo la funci\'on diferenciable, paso a paso}
+\label{sec:suave}
+%==============================================================================
+
+Construimos un forward de \textbf{faceta puntual} que eval\'ua directamente el
+integrando de \eqref{eq:Lh} sobre una malla fija de p\'ixeles de piso
+$\{\vect{p}_{f,i}\}$ y una rejilla fija de bins $\{[t^{(j)}_{\mathrm{lo}},
+t^{(j)}_{\mathrm{hi}}]\}$, sustituyendo cada operaci\'on no diferenciable por su
+an\'alogo suave. Sea $\vect{p}_s(\vect{\psi})=[\rho\cos\varphi,\rho\sin\varphi,h]$.
+
+\subsection{(i) Binning temporal: de \texttt{ceil} a una diferencia de \texorpdfstring{$\erf$}{erf}}
+\label{sec:erf}
+Esta es \textbf{la pieza central}. En el rasterizador toda la intensidad de un
+p\'ixel se deposita en un \emph{\'unico} bin \eqref{eq:raster-ceil}: es una masa
+de Dirac en $t_0(\vect{\psi})$, con
+\begin{equation}
+    t_0(\vect{\psi})
+    =
+    \frac{\|\vect{p}_s-\vect{p}_l\|+\|\vect{p}_s-\vect{p}_f\|}{c}.
+    \label{eq:tof}
+\end{equation}
+Su an\'alogo suave es un \textbf{pulso gaussiano de \'area unitaria} centrado en
+$t_0$,
+\begin{equation}
+    s(t)
+    =
+    \frac{1}{\tau\sqrt{2\pi}}\,
+    \exp\!\left(-\frac{(t-t_0(\vect{\psi}))^2}{2\tau^2}\right),
+    \qquad
+    \int_{-\infty}^{\infty} s(t)\,dt = 1,
+    \label{eq:pulse}
+\end{equation}
+de modo que, al sumar sobre bins, se recupera la masa total (la ``intensidad''
+del rasterizador) pero de forma $C^\infty$. La integral del pulso sobre el bin
+$[t_{\mathrm{lo}},t_{\mathrm{hi}}]$ es \textbf{cerrada}: con el cambio
+$u=(t-t_0)/(\sqrt2\,\tau)$,
+\begin{equation}
+    \boxed{\;
+    S_j(\vect{\psi})
+    =
+    \int_{t^{(j)}_{\mathrm{lo}}}^{t^{(j)}_{\mathrm{hi}}} s(t)\,dt
+    =
+    \frac{1}{2}
+    \left[
+        \erf\!\left(\frac{t^{(j)}_{\mathrm{hi}}-t_0(\vect{\psi})}{\sqrt2\,\tau}\right)
+        -
+        \erf\!\left(\frac{t^{(j)}_{\mathrm{lo}}-t_0(\vect{\psi})}{\sqrt2\,\tau}\right)
+    \right].
+    \;}
+    \label{eq:erf-bin}
+\end{equation}
+La funci\'on $\erf$ es entera (anal\'itica en todo $\R$), de modo que $S_j$ es
+$C^\infty$ en $\vect{\psi}$ a trav\'es de $t_0(\vect{\psi})$. Esto sustituye el
+salto discreto del $\lceil\cdot\rceil$ por una transici\'on suave: al mover
+$\vect{\psi}$, la masa se traspasa \emph{gradualmente} entre bins vecinos. El
+par\'ametro $\tau$ (desviaci\'on est\'andar del pulso, en segundos) fija el ancho
+temporal; por defecto $\tau=\Delta t=3.9\times10^{-10}$\,s.
+
+\subsection{(ii) Ocultamiento: de umbral duro a sigmoide de penumbra}
+\label{sec:vis}
+La m\'ascara dura \eqref{eq:raster-noc} se define a partir de \texttt{xint}, la
+coordenada $x$ donde el segmento faceta$\to$p\'ixel cruza el eje $y=0$. La
+mantenemos \textbf{en forma cerrada} como funci\'on de borde (distancia firmada al
+plano de ocultamiento):
+\begin{equation}
+    d_{\mathrm{edge}}(\vect{\psi},\vect{p}_f)
+    =
+    s_x - s_y\,\frac{s_x-p_x}{s_y-p_y},
+    \qquad
+    s_x=\rho\cos\varphi,\ \ s_y=\rho\sin\varphi,
+    \label{eq:dedge}
+\end{equation}
+que coincide exactamente con el \texttt{xint} del rasterizador pero es suave en
+$\vect{\psi}$ (salvo la recta $s_y=p_y$, tratada como l\'imite). El Heaviside
+$\mathbf{1}\{d_{\mathrm{edge}}>0\}$ se reemplaza por una \textbf{sigmoide}
+\begin{equation}
+    \boxed{\;
+    \mathrm{vis}(\vect{\psi},\vect{p}_f)
+    =
+    \sigma\!\bigl(\kappa\,d_{\mathrm{edge}}\bigr)
+    =
+    \frac{1}{1+e^{-\kappa\, d_{\mathrm{edge}}(\vect{\psi},\vect{p}_f)}}
+    \;\in(0,1),
+    \;}
+    \label{eq:sigmoid}
+\end{equation}
+donde $\kappa>0$ es el \textbf{ancho de penumbra}: la transici\'on
+sombra$\to$luz ocurre en una banda de semi-anchura $\sim 1/\kappa$ (metros) en la
+coordenada de cruce. Cuando $\kappa\to\infty$ se recupera el Heaviside. Por
+defecto $\kappa=60$ (penumbra $\sim1.7$\,cm, comparable al tama\~no de p\'ixel).
+
+\subsection{(iii) \emph{Foreshortening}: de \texorpdfstring{$\max(0,\cdot)$}{max(0,.)} a \emph{softplus}}
+\label{sec:softplus}
+Cada coseno $c_k$ de \eqref{eq:foreshortening} puede ser negativo (cara opuesta);
+el rasterizador aplica $[\,c_k\,]_+=\max(0,c_k)$, no derivable en $c_k=0$. Lo
+reemplazamos por la \textbf{\emph{softplus}}
+\begin{equation}
+    \softplus_\beta(x)
+    =
+    \frac{1}{\beta}\log\!\bigl(1+e^{\beta x}\bigr),
+    \qquad
+    \softplus_\beta(x)\xrightarrow[\beta\to\infty]{}\max(0,x),
+    \label{eq:softplus}
+\end{equation}
+cuya derivada es la sigmoide $\sigma(\beta x)\in(0,1)$, de modo que el codo se
+suaviza en una escala $\sim1/\beta$. El \emph{foreshortening} suave es
+\begin{equation}
+    f_{\mathrm{smooth}}(\vect{\psi},\vect{p}_f)
+    =
+    \prod_{k=1}^{5}\softplus_\beta\!\bigl(c_k(\vect{\psi},\vect{p}_f)\bigr).
+    \label{eq:f-smooth}
+\end{equation}
+Por defecto $\beta=50$ (ancho de codo $\sim0.02$). Las distancias
+$\|\cdot\|=\sqrt{\langle\cdot,\cdot\rangle}$ ya son $C^\infty$ mientras no se
+anulen (garantizado por la geometr\'ia: $\vect{p}_s\neq\vect{p}_l,\vect{p}_f$).
+
+\subsection{(iv) Ensamblado de \texorpdfstring{$g(\vect{\psi})$}{g(psi)}}
+\label{sec:ensamble}
+Reuniendo \eqref{eq:erf-bin}, \eqref{eq:sigmoid} y \eqref{eq:f-smooth}, la tasa
+esperada en la medici\'on $q=(i,j)$ es el producto
+\begin{equation}
+    \boxed{\;
+    y_q(\vect{\psi})
+    =
+    \underbrace{\frac{\alpha\,G\;\mathrm{vis}(\vect{\psi},\vect{p}_{f,i})\,
+                      f_{\mathrm{smooth}}(\vect{\psi},\vect{p}_{f,i})}
+                     {8\pi^3\,\|\vect{p}_c-\vect{p}_{f,i}\|^2\,
+                      \|\vect{p}_s-\vect{p}_l\|^2\,\|\vect{p}_s-\vect{p}_{f,i}\|^2}}
+                     _{\textstyle A_i(\vect{\psi})\ \text{(amplitud espacial)}}
+    \;\cdot\;
+    \underbrace{S_j(\vect{\psi})}_{\textstyle \text{pulso en el bin}} ,
+    \;}
+    \label{eq:yq-smooth}
+\end{equation}
+con $G$ una ganancia global (potencia de l\'aser $\times$ escala de conteo) y
+\begin{equation}
+    g_q(\vect{\psi}) = y_q(\vect{\psi}) + b,
+    \qquad b=0.1 .
+    \label{eq:g-smooth}
+\end{equation}
+El fondo $b>0$ cumple el mismo papel que en el \emph{writeup}: mantiene $1/g_q$
+finito \textbf{sin} necesidad de un piso $\varepsilon$ artificial. Cada factor de
+\eqref{eq:yq-smooth} es $C^\infty$ en $\vect{\psi}=(\rho,\varphi,h)$, luego $g_q$
+lo es. Esto est\'a implementado en \texttt{crb\_analytic\_forward.py}
+(clase \texttt{AnalyticForwardModel}; ver \texttt{ForwardConfig} para
+$\alpha,G,b,\beta,\kappa,\tau$ y la geometr\'ia fija).
+
+%==============================================================================
+\section{Derivadas cerradas por diferenciaci\'on simb\'olica}
+\label{sec:derivadas}
+%==============================================================================
+
+Como $g_q=y_q+b$ y $b$ no depende de $\vect{\psi}$, se tiene
+$\partial g_q/\partial\psi_m=\partial y_q/\partial\psi_m$ (id\'entico a la ec.~10
+del \emph{writeup}). Por la estructura de producto \eqref{eq:yq-smooth}, la
+regla del producto da la \textbf{estructura} de la derivada:
+\begin{equation}
+    \frac{\partial y_q}{\partial\psi_m}
+    =
+    \frac{\partial A_i}{\partial\psi_m}\,S_j
+    +
+    A_i\,\frac{\partial S_j}{\partial\psi_m},
+    \qquad \psi_m\in\{\rho,\varphi,h\}.
+    \label{eq:chain}
+\end{equation}
+Los bloques suaves aportan derivadas elementales bien definidas en todo el
+dominio:
+\begin{align}
+    \frac{\partial S_j}{\partial\psi_m}
+    &=
+    -\,\frac{\partial t_0}{\partial\psi_m}\,
+    \frac{1}{\tau\sqrt{2\pi}}
+    \left[
+        e^{-(t^{(j)}_{\mathrm{hi}}-t_0)^2/2\tau^2}
+        -
+        e^{-(t^{(j)}_{\mathrm{lo}}-t_0)^2/2\tau^2}
+    \right],
+    \label{eq:dS}\\[4pt]
+    \frac{d}{dx}\,\softplus_\beta(x) &= \sigma(\beta x),
+    \qquad
+    \frac{d}{dx}\,\sigma(\kappa x) = \kappa\,\sigma(\kappa x)\bigl(1-\sigma(\kappa x)\bigr),
+    \label{eq:dblocks}
+\end{align}
+donde \eqref{eq:dS} sale de derivar \eqref{eq:erf-bin} usando
+$\erf'(z)=\tfrac{2}{\sqrt\pi}e^{-z^2}$, y $\partial t_0/\partial\psi_m$ se obtiene
+de \eqref{eq:tof} derivando las normas. La derivada del producto de cinco
+\emph{softplus} y de las normas se propaga por la regla de la cadena.
+
+En la pr\'actica \textbf{no} escribimos estas expresiones a mano: se generan de
+forma \textbf{simb\'olica} con \texttt{sympy} (an\'alogo directo al uso de
+Mathematica en el \emph{writeup}) y se compilan a \texttt{numpy}/\texttt{scipy}
+con \texttt{lambdify} para evaluaci\'on vectorizada sobre toda la rejilla
+$(i,j)$:
+\begin{lstlisting}
+# crb_analytic_forward.py  (construccion simbolica, resumida)
+rho, phi, h = sp.symbols("rho phi h", real=True)
+ps = sp.Matrix([rho*sp.cos(phi), rho*sp.sin(phi), h])
+ns = sp.Matrix([-sp.cos(phi), -sp.sin(phi), 0])
+d_pl, d_pf = (ps-pl).norm(), (ps-pf).norm()          # distancias C-inf
+softplus = lambda x: sp.log(1 + sp.exp(beta*x))/beta  # (iii)
+f_fore = softplus(c1)*softplus(c2)*softplus(c3)*softplus(c4)*softplus(c5)
+d_edge = sx - sy*(sx-px)/(sy-py)                       # (ii)
+vis     = 1/(1 + sp.exp(-kappa*d_edge))
+t0 = (d_pl + d_pf)/c                                   # (i)
+S  = (sp.erf((thi-t0)/(sp.sqrt(2)*tau))
+      - sp.erf((tlo-t0)/(sp.sqrt(2)*tau)))/2
+y  = alpha*gain*vis*f_fore/(8*sp.pi**3*d_cf**2*d_pl**2*d_pf**2) * S
+dy_drho = sp.diff(y, rho)      # derivadas CERRADAS
+dy_dphi = sp.diff(y, phi)
+dy_dh   = sp.diff(y, h)
+f_dy = sp.lambdify((rho,phi,h,px,py,tlo,thi), dy_drho, modules=["scipy","numpy"])
+\end{lstlisting}
+Las funciones expuestas son \texttt{analytic\_forward\_g(psi,\dots)},
+\texttt{analytic\_jacobian\_g(psi,\dots)} y \texttt{compute\_crb\_analytic(psi,\dots)}.
+
+%==============================================================================
+\section{Fisher de Poisson y CRB}
+\label{sec:fisher}
+%==============================================================================
+
+Con el Jacobiano cerrado $\matr{J}\in\R^{N\times p}$
+($N=$\,\#mediciones, $p\in\{2,3\}$) cuyas columnas son
+$\partial\vect{g}/\partial\rho$, $\partial\vect{g}/\partial\varphi$ (y
+$\partial\vect{g}/\partial h$), la matriz de informaci\'on de Fisher de Poisson
+es id\'entica a la del \emph{writeup} (ec.~9),
+\begin{equation}
+    I_{mk}(\vect{\psi})
+    =
+    \sum_{q=1}^{N}\frac{1}{g_q(\vect{\psi})}
+    \frac{\partial g_q}{\partial\psi_m}
+    \frac{\partial g_q}{\partial\psi_k}
+    \qquad\Longleftrightarrow\qquad
+    \matr{I}
+    =
+    \matr{J}^{\mathsf T}\diag\!\bigl(1/\vect{g}\bigr)\,\matr{J},
+    \label{eq:fisher}
+\end{equation}
+y la cota de Cram\'er--Rao (ec.~11)
+\begin{equation}
+    \Cov(\hat{\vect{\psi}})\ \succeq\ \matr{I}(\vect{\psi})^{-1},
+    \qquad
+    \mathrm{CRB}=\matr{I}^{-1}\ (\text{o }\matr{I}^{+}\text{ si es mal condicionada}),
+    \label{eq:crb}
+\end{equation}
+de donde $\sigma_\rho=\sqrt{[\mathrm{CRB}]_{00}}$,
+$\sigma_\varphi=\sqrt{[\mathrm{CRB}]_{11}}$,
+$\sigma_h=\sqrt{[\mathrm{CRB}]_{22}}$ y
+$\sigma_{\mathrm{tang}}=\rho\,\sigma_\varphi$. A diferencia del pipeline
+rasterizado, aqu\'i \textbf{no} hace falta el piso $\varepsilon$ en $1/g$: el
+fondo $b>0$ ya garantiza $g_q\ge b$. La funci\'on
+\texttt{compute\_crb\_analytic} devuelve la misma estructura de resultado y
+estad\'isticos que \texttt{compute\_crb\_polar} (reutiliza sus \emph{helpers}
+\texttt{\_crb\_sigmas\_from\_matrix} y las curvas de elipse $3\sigma$).
+
+%==============================================================================
+\section{Validaci\'on: anal\'itico contra diferencias finitas}
+\label{sec:validacion}
+%==============================================================================
+
+Validamos que la derivada \emph{simb\'olica} es correcta compar\'andola con
+diferencias finitas centrales del \textbf{mismo} forward suave,
+\begin{equation}
+    \left[\frac{\partial\vect{g}}{\partial\psi_m}\right]_{\mathrm{FD}}
+    =
+    \frac{\vect{g}(\vect{\psi}_0+\delta\vect{e}_m)
+          -\vect{g}(\vect{\psi}_0-\delta\vect{e}_m)}{2\delta},
+    \qquad \delta=10^{-6},
+    \label{eq:fd}
+\end{equation}
+sobre una malla de poses $\rho\in\{0.5,1.0,1.5\}$\,m,
+$\varphi\in\{30^\circ,90^\circ,150^\circ\}$, $h=1$\,m. Para que la comparaci\'on
+sea justa se \textbf{congela} la rejilla de bins en $\vect{\psi}_0$ (m\'etodo
+\texttt{freeze\_bins}) y se reutiliza en las evaluaciones $\pm\delta$, de modo
+que la ventana autom\'atica de bins no se desplace bajo la perturbaci\'on. El
+error se mide como desviaci\'on m\'axima escalada por la magnitud de columna
+$\max_q|J_{qm}|$ (m\'etrica robusta: el error relativo por elemento carece de
+sentido en los muchos p\'ixeles dominados por el fondo, donde $y_q\ll b$ y ambas
+derivadas son $\approx0$). El resultado (\texttt{validate\_analytic\_forward.py}):
+\begin{center}
+\small
+\begin{tabular}{@{}rrr|ccc@{}}
+\toprule
+$\rho$ & $\varphi\,[^\circ]$ & $h$ & err $\partial/\partial\rho$ & err $\partial/\partial\varphi$ & err $\partial/\partial h$ \\
+\midrule
+0.50 &  30 & 1.00 & $2.6\times10^{-10}$ & $3.0\times10^{-10}$ & $1.0\times10^{-10}$ \\
+0.50 &  90 & 1.00 & $2.3\times10^{-10}$ & $4.7\times10^{-10}$ & $9.2\times10^{-11}$ \\
+0.50 & 150 & 1.00 & $1.3\times10^{-10}$ & $3.3\times10^{-10}$ & $5.8\times10^{-11}$ \\
+1.00 &  30 & 1.00 & $1.0\times10^{-10}$ & $3.7\times10^{-10}$ & $9.6\times10^{-11}$ \\
+1.00 &  90 & 1.00 & $1.1\times10^{-10}$ & $4.2\times10^{-10}$ & $8.6\times10^{-11}$ \\
+1.00 & 150 & 1.00 & $1.3\times10^{-10}$ & $1.4\times10^{-10}$ & $8.5\times10^{-11}$ \\
+1.50 &  30 & 1.00 & $2.5\times10^{-10}$ & $3.7\times10^{-10}$ & $1.9\times10^{-10}$ \\
+1.50 &  90 & 1.00 & $1.8\times10^{-10}$ & $3.6\times10^{-10}$ & $2.0\times10^{-10}$ \\
+1.50 & 150 & 1.00 & $2.7\times10^{-10}$ & $1.8\times10^{-10}$ & $1.1\times10^{-10}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+\begin{equation*}
+    \textbf{Error m\'aximo relativo (anal\'itico vs FD central):}\quad
+    4.7\times10^{-10}\ \ \ll\ \ 10^{-6}\ \ \Rightarrow\ \ \textbf{PASS}.
+\end{equation*}
+Como CRB de referencia, en $(\rho,\varphi,h)=(1,90^\circ,1)$ se obtiene
+$\sigma_\rho\approx0.085$\,m, $\sigma_\varphi\approx1.69^\circ$,
+$\sigma_h\approx0.094$\,m.
+
+\begin{remark}[Qu\'e valida y qu\'e no]
+Esta prueba certifica que la \textbf{derivada cerrada es exacta} para el forward
+suave. \textbf{No} pretende reproducir el simulador rasterizado: el modelo
+anal\'itico de faceta puntual y el rasterizador de \emph{mesh} son
+\emph{forwards distintos} (uno reemplaza \texttt{ceil}/Heaviside/\texttt{max} por
+sus an\'alogos $C^\infty$). Son num\'ericamente distintos por construcci\'on; lo
+que compartimos con el \emph{writeup} es la \emph{estructura} Fisher--Poisson y
+el hecho de derivar bajo el integrando.
+\end{remark}
+
+%==============================================================================
+\section{Conclusi\'on}
+\label{sec:conclusion}
+%==============================================================================
+
+Partiendo del render rasterizado --- no diferenciable por
+$\lceil\cdot\rceil$, umbral de ocultamiento y \emph{clamps} ---, construimos un
+forward de faceta $C^\infty$ reemplazando cada discontinuidad por su an\'alogo
+cerrado: la masa de Dirac en un bin por la \textbf{integral gaussiana}
+\eqref{eq:erf-bin} (diferencia de $\erf$, el coraz\'on de la
+diferenciabilidad), el Heaviside por una \textbf{sigmoide} \eqref{eq:sigmoid}, y
+$\max(0,\cdot)$ por \textbf{softplus} \eqref{eq:softplus}. Con ello:
+\begin{itemize}[nosep]
+    \item las derivadas $\partial g/\partial\rho,\partial g/\partial\varphi,
+          \partial g/\partial h$ son \textbf{exactas} y se obtienen
+          simb\'olicamente (\texttt{sympy}), sin ajustar el paso $\delta$;
+    \item $g_q$ y sus derivadas est\'an \textbf{bien definidas en $0$} gracias al
+          fondo $b>0$, que hace innecesario el piso $\varepsilon$;
+    \item la Fisher y el CRB \eqref{eq:fisher}--\eqref{eq:crb} conservan la
+          estructura del \emph{writeup};
+    \item la validaci\'on anal\'itico-vs-FD da error m\'aximo relativo
+          $\sim5\times10^{-10}$.
+\end{itemize}
+La salvedad importante: este modelo anal\'itico de faceta puntual
+\textbf{difiere} del rasterizador de malla, y sus valores de CRB dependen de la
+ganancia $G$ y de los par\'ametros de suavizado $(\beta,\kappa,\tau)$, que
+recuperan el l\'imite duro cuando $\beta,\kappa\to\infty$ y $\tau\to0$.
+
+%------------------------------------------------------------------------------
+\paragraph{Archivos.}
+\texttt{crb\_analytic\_forward.py} (forward + Jacobiano simb\'olico + CRB),
+\texttt{validate\_analytic\_forward.py} (validaci\'on anal\'itico vs FD),
+este documento \texttt{docs/analytic\_forward\_crb.tex}.
+Reutiliza (sin modificar) \emph{helpers} de \texttt{crb\_polar\_functions.py}.
+
+\end{document}
