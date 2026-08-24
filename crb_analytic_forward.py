@@ -7,31 +7,51 @@ partial derivatives ``dg_q/dpsi_m`` obtained by **symbolic differentiation**
 (sympy), and the Poisson Fisher information / Cramer-Rao bound assembled from
 them.
 
-It is the differentiable analogue of the rasterized simulator
-(``pyerti.simulation`` / ``simulation_polar_clean.ipynb``) that
-``crb_polar_functions.py`` differentiates by *finite differences*.  It does NOT
-modify or call that simulator; it is a standalone re-derivation of the paper's
-continuous model (Active Corner Camera CRB writeup, eqs. 1-3, 9-11) in which
-every source of non-differentiability of the rasterizer is replaced by a smooth,
+It is the differentiable analogue of the rasterized simulator's OWN forward
+(``simulation_polar_clean.ipynb`` cell 8, triangle loop ~lines 208-318, which
+``crb_polar_functions.py`` differentiates by *finite differences*).  It does NOT
+modify or call that simulator; it re-expresses the SAME per-pixel intensity as a
+smooth, closed-form function and differentiates it exactly.
+
+The simulator uses a *two-bounce* path (laser -> facet -> floor pixel; the SPAD
+sees the floor point directly), NOT the 3-bounce / 5-cosine / 8*pi^3 model of the
+paper.  Concretely, for facet centroid ``p_s`` and floor pixel ``p_f``:
+
+    lps = p_l - p_s,  d1 = ||lps||;   fovsp = p_f - p_s,  d2 = ||fovsp||
+    n_s = (-cos phi, -sin phi, 0),  n_l = n_f = (0,0,1)
+    dot1 = max(0, n_s . lps  / d1)   dot2 = max(0, n_s . fovsp / d2)
+    dot3 = max(0, n_l . (-lps)/ d1)  dot4 = max(0, n_f . (-fovsp)/d2)
+    intensity = I_laser * area * dot1*dot2*dot3*dot4 / (4*pi^2 * d1^2 * d2^2)
+    arrival_bin = ceil((d1+d2)/(c*Dt));  intensity deposited whole into that bin
+    noc = (xint > 0),  xint = s_x - s_y*(s_x - p_fx)/(s_y - p_fy)
+
+Every source of non-differentiability of that function is replaced by a smooth,
 closed-form analogue:
 
 ============================  ==========================================================
-Rasterizer (non-smooth)       Analytic smooth analogue (this module)
+Simulator (non-smooth)        Analytic smooth analogue (this module)
 ============================  ==========================================================
-``arrival_bin = ceil(d/cDt)`` analytic integral of a Gaussian pulse over each time bin
-   (Dirac-in-a-bin)              -> difference of ``erf`` (C-infinity in psi)
-``noc = (xint > 0)``          soft occlusion ``sigmoid(kappa * d_edge(psi))``
-   (sampled Heaviside)           with penumbra width ~ 1/kappa
-``max(0, cos beta_k)``        softplus ``(1/beta) log(1 + exp(beta x))`` on each cosine
-   (foreshortening clamps)       (smooth hinge, width ~ 1/beta)
+``arrival_bin = ceil(d/cDt)`` analytic integral of a unit-area Gaussian pulse over each
+   (Dirac-in-a-bin)              time bin -> difference of ``erf`` (C-infinity in psi)
+``noc = (xint > 0)``          soft occlusion ``sigmoid(kappa * d_edge(psi))``,
+   (sampled Heaviside)           d_edge == the simulator's xint, penumbra width ~1/kappa
+``max(0, dot_k)`` (4 cosines) softplus ``(1/beta) log(1 + exp(beta x))`` on each of the
+   (foreshortening clamps)       FOUR two-bounce cosines (smooth hinge, width ~1/beta)
+``/(4*pi^2 * d1^2 * d2^2)``   kept as-is (smooth); ``area`` folded into the gain G
 deposit in integer pixel/bin  factorized product ``A_i(psi) * S_ij(psi)`` evaluated
                                  analytically on a fixed floor/time grid
 ============================  ==========================================================
 
+The triangle ``area`` (which varies per triangle in the mesh simulator) is folded
+into the constant gain ``G`` / albedo ``alpha`` as an *effective constant facet
+area* (point-facet assumption).  The camera position ``p_c`` plays NO role in the
+two-bounce forward and is not used.
+
 The parameter Jacobian is therefore available in closed form for the Fisher
 information ``I_{mk} = sum_q (1/g_q) dg_q/dpsi_m dg_q/dpsi_k`` and
-``CRB = I^{-1}`` -- exactly the Poisson-Fisher structure of the paper (eqs. 9,
-11), but with *exact* analytic derivatives instead of finite differences.
+``CRB = I^{-1}`` -- the Poisson-Fisher structure of the paper (eqs. 9, 11), but
+applied to the *simulator's* two-bounce intensity with *exact* analytic
+derivatives instead of finite differences.
 
 Public API
 ----------
@@ -94,8 +114,10 @@ class ForwardConfig:
     # --- fixed scene geometry ------------------------------------------------
     p_l: Tuple[float, float, float] = (0.0, 0.0, 0.0)      # laser spot
     n_l: Tuple[float, float, float] = (0.0, 0.0, 1.0)      # laser surface normal
-    p_c: Tuple[float, float, float] = (0.0, -0.25, 1.5)    # SPAD camera position
     n_f: Tuple[float, float, float] = (0.0, 0.0, 1.0)      # floor normal
+    # p_c is UNUSED by the two-bounce forward (kept only for backward-compat with
+    # callers that still pass it; it plays no role in the intensity or Jacobian).
+    p_c: Tuple[float, float, float] = (0.0, -0.25, 1.5)    # SPAD camera position (unused)
 
     # --- floor FOV pixel grid ------------------------------------------------
     fov_width: float = 0.5          # metres (square FOV side)
@@ -119,9 +141,13 @@ class ForwardConfig:
     tau: float = 3.9e-10            # Gaussian pulse std (s)
 
     def as_key(self) -> Tuple:
-        """Hashable key of the *symbolic-structure-relevant* fields."""
+        """Hashable key of the *symbolic-structure-relevant* fields.
+
+        ``p_c`` is intentionally absent: the two-bounce forward does not depend on
+        the camera position, so changing it must not rebuild the symbolic model.
+        """
         return (
-            self.p_l, self.n_l, self.p_c, self.n_f,
+            self.p_l, self.n_l, self.n_f,
             self.alpha, self.gain, self.beta, self.kappa, self.tau, C_LIGHT,
         )
 
@@ -139,62 +165,64 @@ def _build_symbolic(key: Tuple) -> Dict[str, Callable]:
     """
     import sympy as sp
 
-    (p_l, n_l, p_c, n_f, alpha, gain, beta, kappa, tau, c) = key
+    (p_l, n_l, n_f, alpha, gain, beta, kappa, tau, c) = key
 
     rho, phi, h = sp.symbols("rho phi h", real=True)
     px, py, tlo, thi = sp.symbols("px py tlo thi", real=True)
 
-    # --- facet pose (paper eq. sec. II) -------------------------------------
+    # --- facet pose ----------------------------------------------------------
     sx = rho * sp.cos(phi)
     sy = rho * sp.sin(phi)
-    ps = sp.Matrix([sx, sy, h])
-    ns = sp.Matrix([-sp.cos(phi), -sp.sin(phi), 0])
+    ps = sp.Matrix([sx, sy, h])            # p_s  = scene_center (triangle centroid)
+    ns = sp.Matrix([-sp.cos(phi), -sp.sin(phi), 0])   # n_s = facet normal
 
-    pf = sp.Matrix([px, py, 0])
-    pl = sp.Matrix(p_l)
-    pc = sp.Matrix(p_c)
-    nl = sp.Matrix(n_l)
-    nf = sp.Matrix(n_f)
+    pf = sp.Matrix([px, py, 0])            # p_f  = floor pixel (cam_pos)
+    pl = sp.Matrix(p_l)                    # p_l  = laser spot
+    nl = sp.Matrix(n_l)                    # n_l  = laser surface normal (0,0,1)
+    nf = sp.Matrix(n_f)                    # n_f  = floor normal        (0,0,1)
 
-    # --- distances (smooth in psi) ------------------------------------------
-    d_pl = sp.sqrt((ps - pl).dot(ps - pl))   # ||p_s - p_l||
-    d_pf = sp.sqrt((ps - pf).dot(ps - pf))   # ||p_s - p_f||
-    d_cf = sp.sqrt((pc - pf).dot(pc - pf))   # ||p_c - p_f||  (const in psi)
+    # --- two-bounce distances (smooth in psi) -------------------------------
+    #   d1 = ||p_l - p_s|| (laser -> facet),  d2 = ||p_f - p_s|| (facet -> floor)
+    d1 = sp.sqrt((ps - pl).dot(ps - pl))   # simulator's d1  ( = ||lps|| )
+    d2 = sp.sqrt((ps - pf).dot(ps - pf))   # simulator's d2  ( = ||fovsp|| )
 
-    # --- foreshortening: 5 cosines with softplus hinges (eq. 2) -------------
+    # --- foreshortening: FOUR two-bounce cosines with softplus hinges -------
+    # These are the smooth analogues of the simulator's dot1..dot4 (cell 8):
+    #   dot1 = max(0, n_s . (p_l - p_s)/d1)     dot2 = max(0, n_s . (p_f - p_s)/d2)
+    #   dot3 = max(0, n_l . (p_s - p_l)/d1)     dot4 = max(0, n_f . (p_s - p_f)/d2)
     def softplus(x):
         return sp.log(1 + sp.exp(beta * x)) / beta
 
-    cos1 = nf.dot(pc - pf) / d_cf            # camera <-> floor
-    cos2 = nf.dot(ps - pf) / d_pf            # floor normal <-> facet
-    cos3 = ns.dot(pf - ps) / d_pf            # facet normal <-> floor
-    cos4 = ns.dot(pl - ps) / d_pl            # facet normal <-> laser
-    cos5 = nl.dot(ps - pl) / d_pl            # laser normal <-> facet
-    f_fore = (
-        softplus(cos1) * softplus(cos2) * softplus(cos3)
-        * softplus(cos4) * softplus(cos5)
-    )
+    c1 = ns.dot(pl - ps) / d1               # dot1: facet normal <-> laser dir
+    c2 = ns.dot(pf - ps) / d2               # dot2: facet normal <-> floor dir
+    c3 = nl.dot(ps - pl) / d1               # dot3: laser normal <-> facet dir
+    c4 = nf.dot(ps - pf) / d2               # dot4: floor normal <-> facet dir
+    f_fore = softplus(c1) * softplus(c2) * softplus(c3) * softplus(c4)
 
     # --- soft occlusion (replaces Heaviside / the ``xint>0`` mask) ----------
     # d_edge = x-coordinate where the facet->floor segment crosses y=0.  This is
-    # exactly the rasterizer's ``xint`` but kept symbolic and smooth.  visible
+    # exactly the simulator's ``xint`` but kept symbolic and smooth.  visible
     # when the crossing is on the lit side (d_edge > 0).
     d_edge = sx - sy * (sx - px) / (sy - py)
     vis = 1 / (1 + sp.exp(-kappa * d_edge))
 
-    # --- radial falloff (eq. 1 denominator) ---------------------------------
-    denom = 8 * sp.pi**3 * d_cf**2 * d_pl**2 * d_pf**2
+    # --- radial falloff: simulator's 1/(4 pi^2 d1^2 d2^2) -------------------
+    # The triangle ``area`` is folded into ``gain`` as an effective constant
+    # facet area (point-facet assumption); the 4*pi^2 constant is the simulator's
+    # ``fourpi = 4*np.pi*np.pi`` -- NOT the paper's 8*pi^3.
+    denom = 4 * sp.pi**2 * d1**2 * d2**2
     A = alpha * gain * vis * f_fore / denom  # spatial amplitude of pixel
 
     # --- analytic pulse integral over the bin [tlo, thi] --------------------
-    # The rasterizer deposits the WHOLE pixel intensity into a single arrival
-    # bin (a Dirac mass).  Its smooth analogue is a *unit-area* Gaussian pulse
+    # The simulator deposits the WHOLE pixel intensity into a single arrival bin
+    # ``arrival_bin = ceil((d1+d2)/(c*Dt))`` (a Dirac mass).  Its smooth analogue
+    # is a *unit-area* Gaussian pulse
     #     s(t) = 1/(tau sqrt(2 pi)) exp(-(t - t0)^2 / (2 tau^2)),
-    # with time-of-flight t0 = (d_pl + d_pf)/c.  Integrating the pdf over the bin
+    # with time-of-flight t0 = (d1 + d2)/c.  Integrating the pdf over the bin
     # gives a scaled difference of erf, so that summing over all bins returns the
     # full spatial amplitude A (the Dirac mass) -- but now C-infinity in psi:
     #     S = 1/2 [ erf((thi-t0)/(sqrt2 tau)) - erf((tlo-t0)/(sqrt2 tau)) ].
-    t0 = (d_pl + d_pf) / c
+    t0 = (d1 + d2) / c
     S = (
         sp.erf((thi - t0) / (sp.sqrt(2) * tau))
         - sp.erf((tlo - t0) / (sp.sqrt(2) * tau))
