@@ -1,0 +1,417 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue, citecolor=blue, urlcolor=blue}
+
+\newcommand{\erf}{\operatorname{erf}}
+
+\newcommand{\figabc}[3]{%
+  \begin{figure}[ht]\centering
+  \IfFileExists{#1}{\includegraphics[width=#2\textwidth]{#1}}%
+  {\fbox{\textit{(figura pendiente: #1)}}}%
+  \caption{#3}\end{figure}}
+
+\title{\textbf{Gu\'ia intuitiva del CRB de la c\'amara de esquina}\\[2mm]
+\large C\'omo encajan las ramas, los m\'etodos y los \emph{plots}}
+\author{Ruta anal\'itica diferenciable --- rama \texttt{analytic-forward-mesh-sum}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent Esta gu\'ia est\'a pensada para alguien que \textbf{se est\'a perdiendo}
+entre tantas ramas, \emph{plots} y m\'etodos. No hay demostraciones: hay
+\textbf{analog\'ias}, dibujos mentales y un mapa claro de qu\'e hace cada cosa y
+por qu\'e. Si solo lees una frase, que sea esta: \emph{el CRB es un l\'imite
+te\'orico de ``cu\'anto se puede afinar'' una medici\'on; lo calculamos de dos
+maneras (rasterizada con diferencias finitas, y anal\'itica con derivadas
+exactas) y comprobamos que dan lo mismo}. El resto del documento desarrolla eso
+con calma.
+\end{abstract}
+
+\tableofcontents
+\bigskip
+
+%==============================================================================
+\section{¿Qu\'e es el CRB y por qu\'e se dibuja como una elipse?}
+%==============================================================================
+
+Imagina que quieres localizar un objeto escondido tras una esquina (no lo ves
+directamente; solo ves la luz que rebota en el suelo). La pregunta del CRB
+(\emph{Cram\'er--Rao Bound}) es:
+
+\begin{quote}
+\textit{Con la f\'isica de este montaje, ¿cu\'al es la \textbf{mejor precisi\'on
+posible} con la que podr\'ia estimar la posici\'on del objeto, por muy bueno que
+fuera mi algoritmo?}
+\end{quote}
+
+Es una \textbf{cota inferior} de la incertidumbre: ning\'un estimador (insesgado)
+puede hacerlo mejor. Es como el l\'imite de velocidad de un coche marcado por el
+motor: no dice a qu\'e velocidad vas, dice \emph{cu\'al es el techo}.
+
+\paragraph{No usa datos, solo el modelo.} Esto sorprende a mucha gente: para
+calcular el CRB \textbf{no hace falta tomar ninguna medida}. Solo se necesita el
+\emph{modelo} de c\'omo la escena produce la se\~nal. La receta es:
+\begin{enumerate}[nosep]
+  \item El modelo \emph{forward} $g(\psi)$: dado un estado
+  $\psi=(\rho,\varphi,h)$ (distancia radial, \'angulo, altura del objeto),
+  predice la se\~nal esperada en cada p\'ixel y bin temporal.
+  \item La \textbf{sensibilidad} o Jacobiano $J=\partial g/\partial\psi$: cu\'anto
+  cambia la se\~nal si muevo un poquito el objeto. \emph{Mucha} sensibilidad
+  $\Rightarrow$ f\'acil de estimar; \emph{poca} $\Rightarrow$ dif\'icil.
+  \item La \textbf{informaci\'on de Fisher} (con ruido de Poisson, t\'ipico de
+  conteo de fotones):
+  \[
+     I(\psi) \;=\; J^{\top}\,\mathrm{diag}\!\Big(\tfrac{1}{g}\Big)\,J .
+  \]
+  El factor $1/g$ dice que los p\'ixeles con poca se\~nal pesan m\'as en t\'erminos
+  relativos (m\'as ruido de Poisson).
+  \item El CRB es simplemente su \textbf{inversa}: $\mathrm{CRB}=I^{-1}$. La
+  diagonal da las varianzas m\'inimas $\sigma_\rho^2,\sigma_\varphi^2,\sigma_h^2$.
+\end{enumerate}
+
+\paragraph{¿Por qu\'e una elipse (o ``burbuja'')?} $\mathrm{CRB}$ es una matriz
+$3\times3$ (o $2\times2$ si fijamos la altura). Una matriz de covarianza se
+visualiza como una \textbf{elipse} (en 2D) o un \textbf{elipsoide} (3D): los ejes
+apuntan en las direcciones de mayor/menor incertidumbre y su longitud es
+$3\sigma$ (una ``regi\'on de confianza'' del $99.7\%$ aproximado). Cuando la
+dibujamos en el plano polar $(\rho,\varphi)$ centrada en cada pose del objeto,
+obtenemos las \textbf{burbujas 3$\sigma$}: finas en la direcci\'on que se estima
+bien, gordas en la que se estima mal. En nuestro problema salen \emph{finas en
+\'angulo} (la arista que oculta al objeto da mucha resoluci\'on azimutal) y
+\emph{alargadas en rango} (la distancia se estima peor).
+
+\paragraph{Lo m\'as importante de todo.} Hacer el c\'alculo ``anal\'itico''
+\textbf{NO baja el CRB}. El CRB es una propiedad del modelo; cambiar la
+\emph{forma de calcularlo} no lo mejora ni lo empeora. Lo \'unico que cambia es la
+\textbf{calidad num\'erica} del c\'alculo de las derivadas: exactas (anal\'itico)
+frente a aproximadas (diferencias finitas). Es como medir una mesa con un
+l\'aser en vez de con pasos: la mesa mide lo mismo; solo cambia el instrumento.
+
+%==============================================================================
+\section{Las dos rutas para calcular el CRB}
+%==============================================================================
+
+Hay \textbf{dos caminos} para obtener el Jacobiano $J$, y por tanto el CRB. Dan el
+mismo resultado (eso es justo lo que verificamos), pero por dentro son muy
+distintos.
+
+\subsection{Ruta FD: el simulador rasterizado + diferencias finitas}
+El simulador ``de verdad'' dibuja la escena en una rejilla (\emph{rasteriza}):
+reparte los fotones en p\'ixeles y en bins de tiempo. Para obtener la
+sensibilidad, se mueve el objeto un pel\'in ($\pm\delta$) y se mira cu\'anto
+cambi\'o la imagen:
+\[
+   \frac{\partial g}{\partial \rho}\;\approx\;\frac{g(\rho+\delta)-g(\rho-\delta)}{2\delta}
+   \qquad(\text{\emph{diferencia finita}, FD}).
+\]
+El problema: el simulador tiene \textbf{tres operaciones ``de escal\'on''} que
+\emph{no son derivables}:
+\begin{enumerate}[nosep]
+  \item \textbf{Binning temporal} con \texttt{ceil}: el tiempo de llegada de la luz
+  se redondea al bin siguiente. Es una \textbf{escalera}: derivada cero casi
+  siempre y saltos bruscos en los bordes.
+  \item \textbf{Ocultamiento} con \texttt{xint>0} (un \emph{Heaviside}): un p\'ixel
+  ``ve'' o ``no ve'' la faceta. Es un \textbf{interruptor}: $0$ o $1$, sin
+  transici\'on.
+  \item \textbf{Recorte de cosenos} con \texttt{max(0,\,$\cdot$)}: la luz que
+  incide ``por detr\'as'' se pone a cero. Tiene una \textbf{esquina} no derivable.
+\end{enumerate}
+Diferenciar num\'ericamente algo con escaleras y esquinas es ruidoso: seg\'un el
+paso $\delta$ caes en una meseta plana (derivada $0$) o justo en un salto
+(derivada enorme). Funciona, pero es \textbf{fr\'agil}.
+
+\subsection{Ruta anal\'itica: suavizar las tres operaciones y derivar exacto}
+La idea es reemplazar cada operaci\'on ``dura'' por una \textbf{versi\'on suave}
+($C^\infty$, infinitamente derivable) que se le parece tanto como queramos, y
+luego pedirle a \texttt{sympy} la derivada \textbf{exacta} (simb\'olica):
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Operaci\'on dura & Reemplazo suave & Analog\'ia\\
+\midrule
+\texttt{ceil} (binning) & integral de una gaussiana por bin ($\erf$) &
+   una campana en vez de un ladrillo\\
+Heaviside (ocultar) & \textbf{sigmoide} $\sigma(\kappa\,x)$ &
+   un atenuador (\emph{dimmer}) en vez de interruptor\\
+\texttt{max(0,x)} (cosenos) & \textbf{softplus} $\tfrac1\beta\log(1+e^{\beta x})$ &
+   una rampa con la esquina redondeada\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent \textbf{¿Por qu\'e cada reemplazo?} (Ver figuras \texttt{crb\_smoothing\_*.png}.)
+\begin{itemize}[nosep]
+  \item \emph{Binning $\to$ gaussiana/$\erf$:} el pulso real del l\'aser tiene
+  \textbf{ancho temporal finito}, as\'i que una campanita es m\'as fiel que un
+  Dirac-en-un-bin. Su integral por bin es una diferencia de $\erf$ (funci\'on
+  suave). Adem\'as \emph{conserva la energ\'ia}: la masa se traspasa gradualmente
+  entre bins vecinos en vez de saltar. El ancho $\tau$ controla lo ``afilada'' que
+  es la campana.
+  \item \emph{Heaviside $\to$ sigmoide:} la sombra real no tiene un borde
+  infinitamente n\'itido, tiene una \textbf{penumbra}. La sigmoide modela esa
+  banda de transici\'on; su ancho $1/\kappa$ es la penumbra.
+  \item \emph{max $\to$ softplus:} es el mismo recorte pero con la esquina
+  redondeada en una escala $1/\beta$; as\'i la derivada existe en todas partes.
+\end{itemize}
+
+En el \textbf{l\'imite duro} ($\tau\to0$, $\kappa,\beta\to\infty$) el modelo suave
+se convierte \emph{exactamente} en el del simulador. Por eso ambas rutas
+convergen al mismo CRB: son el mismo modelo visto con m\'as o menos ``desenfoque''.
+
+\figabc{../plots/crb_smoothing_binning.png}{0.92}{\textbf{Binning suave.} El
+redondeo \texttt{ceil} (una escalera dura) se reemplaza por la integral de una
+gaussiana sobre cada bin. Al reducir $\tau$ los flancos se verticalizan y se
+recupera la caja dura; la energ\'ia total se conserva para cualquier $\tau$. Este
+es el reemplazo de la operaci\'on (i).}
+
+\figabc{../plots/crb_smoothing_occlusion.png}{0.92}{\textbf{Ocultamiento suave.}
+El interruptor Heaviside (izq.) se reemplaza por una sigmoide (der.) de penumbra
+$1/\kappa$. Elegimos $\kappa=1/\text{p\'ixel}=256$: la penumbra mide \emph{un
+p\'ixel}, igual que el borde de sombra que el simulador muestrea con su
+\emph{subpixel}. Esta elecci\'on es la que hace coincidir la resoluci\'on angular
+$\sigma_\varphi$ con la del FD.}
+
+%==============================================================================
+\section{Mapa de ramas / PRs: qu\'e a\~nade cada una}
+%==============================================================================
+
+El proyecto creci\'o en capas. Cada rama (PR) a\~nade una pieza sobre la anterior.
+Aqu\'i el mapa, de lo m\'as b\'asico a lo m\'as fiel:
+
+\begin{description}
+\item[\textbf{PR\#1 --- Plots polares (ruta FD, tarea original).}] La base. Corre
+  el \textbf{simulador rasterizado} en una rejilla de poses $(\rho,\varphi)$,
+  calcula el CRB por \textbf{diferencias finitas} y dibuja las burbujas $3\sigma$.
+  Es el punto de partida y sirve como \textbf{verdad de referencia} contra la que
+  se compara todo lo dem\'as. No hay derivadas exactas: todo es num\'erico.
+
+\item[\textbf{PR\#2 --- Forward anal\'itico + teor\'ia.}] Introduce la
+  \textbf{ruta anal\'itica}: reemplaza las tres operaciones duras por suaves
+  (\S2), obtiene el Jacobiano \emph{simb\'olicamente} con \texttt{sympy} y lo
+  valida contra diferencias finitas del \emph{mismo} forward suave. A\~nade el
+  documento te\'orico con las demostraciones (consistencia con el l\'imite duro,
+  conservaci\'on de masa, buen condicionamiento). Aqu\'i el forward a\'un usa una
+  faceta simplificada, as\'i que las \emph{magnitudes} no se comparan todav\'ia,
+  solo la \emph{forma} de las elipses.
+
+\item[\textbf{PR\#3 --- Caso (a)+(b): amplitud f\'isica + rejilla del simulador.}]
+  Da el primer paso hacia la fidelidad de \emph{magnitud}: \textbf{(a)} usa la
+  amplitud \emph{f\'isica} real (misma \texttt{intensity} del simulador:
+  $I_{\text{laser}}$, ca\'ida $1/(4\pi^2 d_1^2 d_2^2)$, fondo $b$) en vez de una
+  ganancia arbitraria, y \textbf{(b)} usa la \emph{misma rejilla} del simulador
+  ($64\times64$, FOV $0.25$, bin $3.9\times10^{-10}$\,s). Con esto las escalas ya
+  son del mismo orden. Pero la faceta sigue siendo \textbf{puntual} (toda el
+  \'area concentrada en un punto), lo que hace el rango \emph{demasiado afilado}:
+  $\sigma_\rho$ sale \textbf{$\sim0.5$--$0.7\times$} el del FD (subestima la
+  incertidumbre).
+
+\item[\textbf{PR\#4 --- Caso (a)+(b)+(c): malla real + densificada (esta rama).}]
+  La m\'as fiel. A\~nade \textbf{(c)}: en vez de un punto, \textbf{suma sobre los
+  tri\'angulos reales} de \texttt{facet.obj}, colocados con \emph{exactamente} el
+  mismo \emph{placement} del simulador (escala an\'isotropa, \emph{pitch},
+  \emph{yaw} $=\varphi+3\pi/2$, elevaci\'on al suelo), escrito como transformaci\'on
+  simb\'olica de $(\rho,\varphi,h)$. Repartir el \'area en el volumen real de la
+  faceta corrige el rango: \textbf{$\sigma_\rho\approx$ FD} ($\approx1{:}1$).
+  Adem\'as, en esta tarea la faceta se \textbf{densifica} (de $2$ a $512$
+  tri\'angulos) para que la suma sea una cuadratura \emph{convergida}, y los
+  anchos de suavizado se \textbf{ligan a la discretizaci\'on} del simulador
+  ($\kappa=1/\text{p\'ixel}$, $\tau=\Delta t/\sqrt{12}$). Con eso \textbf{tambi\'en
+  $\sigma_\varphi\approx$ FD}: ambas incertidumbres coinciden $\approx1{:}1$.
+\end{description}
+
+%==============================================================================
+\section{Cat\'alogo de \emph{plots}: qu\'e muestra cada uno}
+%==============================================================================
+
+Todos los PNG viven en \texttt{plots/}. Aqu\'i qu\'e cuenta cada uno:
+
+\paragraph{Los tres de ``suavizado'' (concepto de la \S2).}
+\begin{itemize}[nosep]
+  \item \texttt{crb\_smoothing\_occlusion.png}: Heaviside (interruptor) $\to$
+  sigmoide (penumbra $1/\kappa=$ un p\'ixel). Reemplazo (ii).
+  \item \texttt{crb\_smoothing\_foreshortening.png}: \texttt{max(0,$\cdot$)}
+  (esquina) $\to$ softplus (esquina redondeada, ancho $1/\beta$). Reemplazo (iii),
+  aplicado a los cuatro cosenos del \emph{foreshortening} (inclinaci\'on).
+  \item \texttt{crb\_smoothing\_binning.png}: \texttt{ceil} (escalera) $\to$
+  integral gaussiana por bin. Reemplazo (i); incluye c\'omo converge a la caja
+  dura al bajar $\tau$ y c\'omo se conserva la energ\'ia.
+\end{itemize}
+
+\paragraph{Los del CRB anal\'itico ``a solas''.}
+\begin{itemize}[nosep]
+  \item \texttt{crb\_standard\_regions\_analytic.png}: las burbujas $3\sigma$ en
+  $(\rho,\varphi)$ estimando las \textbf{tres} variables $(\rho,\varphi,h)$
+  (\emph{with\_h}). Es el ``mapa de precisi\'on'' por toda la escena.
+  \item \texttt{crb\_standard\_regions\_fixed\_h\_analytic.png}: lo mismo pero
+  \textbf{fijando la altura} $h$ (solo $\rho,\varphi$; \emph{fixed\_h}). Al no
+  gastar informaci\'on en $h$, las elipses son algo m\'as peque\~nas.
+  \item \texttt{crb\_regions\_compare\_2\_vs\_3\_analytic.png}: superpone los dos
+  casos anteriores ($2$ par\'ametros vs $3$) para \textbf{ver el coste de estimar
+  tambi\'en la altura}: cu\'anto ``engordan'' las elipses cuando $h$ es
+  desconocida.
+\end{itemize}
+
+\paragraph{Los de comparaci\'on anal\'itico vs FD (el resultado clave).}
+\begin{itemize}[nosep]
+  \item \texttt{crb\_regions\_analytic\_vs\_fd.png}: superpone las elipses
+  anal\'iticas (verde) y las FD (rojo) a \textbf{magnitud real} (sin trucos). Si
+  coinciden, las dos rutas concuerdan. \'Este es el ``examen final''.
+  \item \texttt{crb\_regions\_analytic\_vs\_fd\_rho1p5.png}: un \textbf{zoom} al
+  rango lejano $\rho=1.5$, donde las diferencias son m\'as visibles (es el caso
+  m\'as exigente).
+  \item \texttt{crb\_regions\_analytic\_vs\_fd\_shapenorm.png}: la superposici\'on
+  \textbf{normalizada en forma} (\emph{shapenorm}). Ver abajo qu\'e significa.
+\end{itemize}
+
+\paragraph{¿Qu\'e es ``\emph{shapenorm}'' (forma normalizada)?} A veces dos elipses
+tienen la \textbf{misma forma} (misma proporci\'on largo/ancho y misma
+orientaci\'on) pero \textbf{distinto tama\~no}. Si las dibujas tal cual, la
+diferencia de tama\~no te distrae y no ves si la \emph{forma} coincide.
+``\emph{Shapenorm}'' \textbf{iguala el tama\~no} (escala todas al mismo
+$\sigma_\rho$ mediano) para comparar \emph{solo} forma y orientaci\'on ---como
+poner dos fotos al mismo zoom para ver si son la misma silueta. Es \'util cuando
+las magnitudes a\'un no coincid\'ian (PR\#2/PR\#3). En PR\#4, como el tama\~no ya
+coincide, la versi\'on normalizada y la de magnitud real se ven casi iguales ---y
+eso es justo la buena noticia.
+
+\figabc{../plots/crb_standard_regions_analytic.png}{0.86}{\textbf{Mapa de
+precisi\'on anal\'itico} (burbujas $3\sigma$ estimando $\rho,\varphi,h$). Finas en
+\'angulo (buena resoluci\'on azimutal por la arista ocluyente) y alargadas en
+rango. Cerca del sensor las elipses son diminutas; lejos, crecen.}
+
+%==============================================================================
+\section{C\'omo se hace todo, en general (el \emph{pipeline})}
+%==============================================================================
+
+Con o sin suavizado, el esqueleto del c\'alculo es siempre el mismo:
+\begin{center}
+\fbox{\parbox{0.92\textwidth}{\centering
+\textbf{rejilla de poses} $(\rho,\varphi[,h])$ $\;\to\;$
+\textbf{forward} $g(\psi)$ (se\~nal esperada por p\'ixel/bin) $\;\to\;$
+\textbf{Jacobiano} $J=\partial g/\partial\psi$ $\;\to\;$
+\textbf{Fisher} $I=J^\top\mathrm{diag}(1/g)J$ $\;\to\;$
+\textbf{CRB} $=I^{-1}$ $\;\to\;$
+\textbf{elipse} $3\sigma$
+}}
+\end{center}
+
+La \'unica diferencia entre rutas est\'a en el paso ``Jacobiano'': FD lo aproxima
+moviendo la pose; anal\'itico lo deriva exacto con \texttt{sympy}. Todo lo dem\'as
+(Fisher, inversi\'on, dibujo de elipses) es id\'entico.
+
+\subsection{Comparaci\'on (a)+(b) frente a (a)+(b)+(c): las dos correcciones}
+
+Aqu\'i est\'a el coraz\'on de por qu\'e esta rama importa. Hay \textbf{dos}
+problemas distintos que corregir, y cada uno tiene su culpable:
+
+\paragraph{Problema 1: el rango sale demasiado afilado (culpa: faceta puntual).}
+Si toda la faceta se concentra en \textbf{un punto}, ese punto responde a un
+cambio de distancia de forma muy ``limpia'': todos los fotones se mueven juntos en
+el tiempo de vuelo, la se\~nal es muy sensible a $\rho$ y el CRB de rango sale
+\emph{minúsculo} (demasiado optimista, $\sigma_\rho\sim0.5$--$0.7\times$ FD).
+\textbf{La cura} es usar la \textbf{malla real} (c): la faceta ocupa un volumen,
+sus partes est\'an a distancias ligeramente distintas, la respuesta se ``reparte''
+y el rango se vuelve realista. \emph{La malla corrige $\sigma_\rho$.} Es como la
+diferencia entre golpear un tambor con un l\'apiz (respuesta muy n\'itida) o con la
+palma (respuesta repartida): la palma es lo realista.
+
+\paragraph{Problema 2: el \'angulo se sobreestima un poco (culpa: cuadratura
+gruesa y penumbra demasiado ancha).} Con solo $2$ tri\'angulos, la ``integral''
+sobre la superficie de la faceta es una aproximaci\'on burda ---como estimar el
+\'area de un pa\'is con dos rect\'angulos---. \textbf{Densificar} (subdividir a
+$512$ tri\'angulos) hace que esa suma \textbf{converja} al valor correcto de la
+integral de superficie (los cambios de $128\to512\to2048$ tri\'angulos son
+$<0.5\%$). Pero adem\'as la resoluci\'on angular la fija el \textbf{borde} de la
+sombra, y \'esa depende de lo n\'itida que sea la \textbf{penumbra}: si la penumbra
+es m\'as ancha que un p\'ixel, el borde ``se emborrona'' y $\sigma_\varphi$ sale
+grande. \textbf{La cura} es poner la penumbra del tama\~no de un p\'ixel
+($\kappa=1/\text{p\'ixel}=256$), igual que el borde que ve el simulador con su
+\emph{subpixel}. An\'alogamente, elegir $\tau=\Delta t/\sqrt{12}$ (una campana con
+la \emph{misma varianza} que el ``ladrillo'' del bin) afina $\sigma_\rho$ hasta
+$\approx1{:}1$. \emph{Densificar + atar $\kappa,\tau$ a p\'ixel/bin corrige
+$\sigma_\varphi$ (y remata $\sigma_\rho$).}
+
+\paragraph{Una honestidad importante.} La intuici\'on inicial era ``la malla ya
+deja $\sigma_\rho\approx$ FD y solo falta densificar para $\sigma_\varphi$''. Al
+densificar de verdad se ve que la cuadratura de $2$ tri\'angulos daba un
+$\sigma_\rho\approx$ FD algo \textbf{fortuito}: al converger, \emph{ambas}
+incertidumbres se estabilizan y lo que termina de igualarlas con el FD es
+\textbf{atar los anchos de suavizado a la discretizaci\'on del simulador} (un
+p\'ixel de penumbra, un bin de varianza). No es ``ajustar a ojo'': son las escalas
+\emph{propias} del simulador. El resultado (medido) es que $\sigma_\rho$ y
+$\sigma_\varphi$ quedan ambas en \textbf{raz\'on $1.00$--$1.12$} respecto al FD en
+\textbf{toda} la rejilla.
+
+\figabc{../plots/crb_regions_analytic_vs_fd.png}{0.72}{\textbf{Examen final:
+anal\'itico (verde) vs FD (rojo) a magnitud real.} Las elipses coinciden en toda la
+rejilla, en \textbf{ambos} ejes ($\sigma_\rho$ y $\sigma_\varphi$, razones
+$1.00$--$1.12$). Que caigan una sobre otra \emph{sin} normalizar es la prueba de
+que las dos rutas concuerdan en forma \emph{y} en tama\~no.}
+
+\figabc{../plots/crb_regions_analytic_vs_fd_shapenorm.png}{0.72}{\textbf{Mismo
+overlay, normalizado en forma (\emph{shapenorm}).} Se iguala el tama\~no para
+comparar solo forma y orientaci\'on. Como el tama\~no ya coincid\'ia, esta vista y
+la de magnitud real se ven casi id\'enticas: la forma (aspecto $\approx8.3$ vs
+$8.2$) y el \emph{tilt} concuerdan.}
+
+\figabc{../plots/crb_regions_compare_2_vs_3_analytic.png}{0.78}{\textbf{Coste de
+estimar la altura.} Elipses fijando $h$ (2 par\'ametros) vs estim\'andola (3
+par\'ametros). Cuando $h$ es desconocida las burbujas ``engordan'': parte de la
+informaci\'on se gasta en la altura.}
+
+%==============================================================================
+\section{Tabla resumen de las cuatro ramas}
+%==============================================================================
+
+\begin{center}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabular}{@{}p{2.1cm}p{4.3cm}p{4.0cm}p{3.6cm}@{}}
+\toprule
+\textbf{Rama / PR} & \textbf{Qu\'e a\~nade} &
+\textbf{Resultado ($\sigma_\rho/\sigma_\varphi$ vs FD)} & \textbf{Para qu\'e sirve}\\
+\midrule
+\textbf{PR\#1}\newline Plots FD &
+Simulador rasterizado + CRB por diferencias finitas; burbujas $3\sigma$. &
+Es la \textbf{referencia} (por definici\'on $1{:}1$ consigo mismo). &
+Verdad de base; con qu\'e comparar.\\
+\textbf{PR\#2}\newline Anal\'itico + teor\'ia &
+Suaviza las 3 operaciones duras; Jacobiano exacto (\texttt{sympy}); teor\'ia y
+validaci\'on. &
+Coincide en \textbf{forma}; magnitud a\'un no comparable (faceta simplificada). &
+Derivadas exactas, Fisher bien condicionada.\\
+\textbf{PR\#3}\newline Caso (a)+(b) &
+Amplitud \textbf{f\'isica} + \textbf{rejilla} del simulador. Faceta a\'un puntual. &
+Misma \textbf{escala}; pero $\sigma_\rho\sim0.5$--$0.7\times$ (rango demasiado
+afilado). &
+Fijar unidades f\'isicas y la rejilla.\\
+\textbf{PR\#4}\newline Caso (a)+(b)+(c) \textbf{(esta rama)} &
+\textbf{Malla real} de \texttt{facet.obj} con \emph{placement} simb\'olico,
+\textbf{densificada} a $512$ tri\'angulos, y $\kappa,\tau$ atados a p\'ixel/bin. &
+\textbf{Ambos} $\approx1{:}1$: $\sigma_\rho$ y $\sigma_\varphi$ en razón
+$1.00$--$1.12$ en toda la rejilla. &
+El CRB diferenciable \textbf{m\'as fiel}: exacto \emph{y} comparable en magnitud.\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\bigskip
+\noindent\textbf{En una frase:} PR\#1 pone la referencia, PR\#2 hace las derivadas
+exactas, PR\#3 pone las unidades y la rejilla, y PR\#4 (esta rama) reparte el
+\'area en la malla real densificada y ata el suavizado a p\'ixel/bin ---con lo que
+el CRB anal\'itico coincide con el rasterizado en forma \emph{y} en tama\~no, en
+ambos ejes.
+
+\end{document}

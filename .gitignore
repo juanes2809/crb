@@ -4,6 +4,7 @@ __pycache__/
 .ipynb_checkpoints/
 *.png
 !plots/crb_*.png
+!caso_abc_malla_real/plots/*.png
 docs/*.aux
 docs/*.log
 docs/*.out
