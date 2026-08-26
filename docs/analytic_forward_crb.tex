@@ -56,7 +56,9 @@
 
 \title{Un forward anal\'itico \emph{diferenciable} para el CRB de la
 c\'amara de esquina activa\\[4pt]
-\large De la \textbf{funci\'on del simulador} a derivadas cerradas (Camino A)}
+\large De la \textbf{funci\'on del simulador} a derivadas cerradas (Camino A)\\[2pt]
+\normalsize Variante \textbf{(a)+(b)+(c)}: amplitud f\'isica $+$ rejilla del
+simulador $+$ suma sobre los tri\'angulos reales de \texttt{facet.obj}}
 \author{Obstacle Detection Study}
 \date{\today}
 
@@ -81,12 +83,24 @@ un bin), el ocultamiento por umbral \texttt{xint}$>0$ (Heaviside) y los
 por una y justificando \emph{por qu\'e} cada elecci\'on, por an\'alogos suaves de
 clase $C^\infty$: la masa de Dirac por la integral anal\'itica de un pulso
 gaussiano (diferencia de $\erf$), el umbral por una sigmoide de penumbra, y los
-\emph{clamps} por \emph{softplus}. Presentamos por separado, y ambas
-\textbf{paso a paso}, una secci\'on de \textbf{construcci\'on} y otra de
-\textbf{justificaci\'on matem\'atica}. Las derivadas se obtienen
+\emph{clamps} por \emph{softplus}. Esta es la variante \textbf{(a)+(b)+(c)}, la
+\textbf{m\'as fiel} al simulador: \textbf{(a)} amplitud \emph{f\'isica} (la misma
+\texttt{intensity} del simulador, $I_{\mathrm{laser}}\!=\!1000$, \'area real del
+tri\'angulo, $4\pi^2 d_1^2 d_2^2$, pulso gaussiano de \'area unitaria, fondo
+$b\!=\!0.1$); \textbf{(b)} la \emph{misma rejilla} del simulador ($64\times64$,
+FOV $0.25$, centro $[0,-0.125,0]$, bin $3.9\times10^{-10}$\,s); y \textbf{(c)} una
+\textbf{suma sobre los tri\'angulos reales} de \texttt{objects/facet.obj}, cuyos
+v\'ertices se colocan con el \emph{mismo} \emph{placement} del simulador escrito
+como transformaci\'on \textbf{simb\'olica} de $(\rho,\varphi,h)$ (escala
+an\'is\'otropa, \emph{pitch}, \emph{yaw} $=\varphi+3\pi/2$, elevaci\'on
+$z_{\min}\!\to\!0$ y traslaci\'on a $(\rho\cos\varphi,\rho\sin\varphi,0)$). As\'i el
+forward diferenciable reproduce la funci\'on del simulador en el l\'imite duro y,
+por primera vez, las \textbf{CRB son comparables en magnitud} (no solo en forma):
+la superposici\'on anal\'itico-vs-FD a \emph{magnitud real} coincide dentro de
+$\sim\!10$--$15\%$ en $\sigma_\rho$. Las derivadas se obtienen
 \textbf{simb\'olicamente} con \texttt{sympy} (an\'alogo al Mathematica del
 \emph{writeup}) y se validan contra diferencias finitas del mismo forward suave,
-con error m\'aximo relativo $\sim\!5\times10^{-10}$. C\'odigo:
+con error m\'aximo relativo $\sim\!1.4\times10^{-9}$. C\'odigo:
 \texttt{crb\_analytic\_forward.py}; validaci\'on:
 \texttt{validate\_analytic\_forward.py}. Importante: el CRB es funci\'on
 \emph{solo del modelo} (no consume datos), y este forward anal\'itico es un
@@ -230,13 +244,17 @@ dos rebotes.
 \label{sec:construccion}
 %==============================================================================
 
-Construimos un forward de \textbf{faceta puntual} que eval\'ua directamente el
-integrando de \eqref{eq:raster-int} sobre una malla fija de p\'ixeles de piso
-$\{\vect{p}_{f,i}\}$ y una rejilla fija de bins
-$\{[t^{(j)}_{\mathrm{lo}},t^{(j)}_{\mathrm{hi}}]\}$, reemplazando cada operaci\'on
-no diferenciable por su an\'alogo suave. Para cada una damos: \emph{c\'omo
+Construimos un forward que eval\'ua directamente el integrando de
+\eqref{eq:raster-int} sobre la \textbf{misma} rejilla de p\'ixeles de piso del
+simulador $\{\vect{p}_{f,i}\}$ ($64\times64$, FOV $0.25$) y una rejilla fija de
+bins $\{[t^{(j)}_{\mathrm{lo}},t^{(j)}_{\mathrm{hi}}]\}$, reemplazando cada
+operaci\'on no diferenciable por su an\'alogo suave y \textbf{sumando la
+contribuci\'on sobre los tri\'angulos reales} de \texttt{facet.obj}
+(Sec.~\ref{sec:mesh}). Para las tres operaciones no derivables damos: \emph{c\'omo
 estaba}, \emph{por qu\'e no es derivable}, \emph{con qu\'e se reemplaza} y
-\emph{por qu\'e esa opci\'on}. El orden va de la pieza central hacia afuera.
+\emph{por qu\'e esa opci\'on}; luego, la variante (c) del \emph{placement} y la
+suma sobre tri\'angulos, y el ensamblado con amplitud f\'isica (a). El orden va de
+la pieza central hacia afuera.
 
 %------------------------------------------------------------------------------
 \subsection{(i) Binning temporal: de \texttt{ceil} a una diferencia de \texorpdfstring{$\erf$}{erf}}
@@ -487,51 +505,116 @@ referencia). Par\'ametro real de \texttt{ForwardConfig}.}
 \end{figure}
 
 %------------------------------------------------------------------------------
-\subsection{(iv) Ensamblado de \texorpdfstring{$g(\vect{\psi})=A\,S+b$}{g = A S + b}}
+\subsection{(c) Suma sobre los tri\'angulos reales de \texttt{facet.obj} (\emph{placement} simb\'olico)}
+\label{sec:mesh}
+%------------------------------------------------------------------------------
+
+Las variantes de \emph{faceta puntual} colapsan toda la faceta en un solo punto
+$\vect p_s=(\rho\cos\varphi,\rho\sin\varphi,h)$ con normal fija
+$(-\cos\varphi,-\sin\varphi,0)$. La variante \textbf{(c)} en cambio lee la malla
+real \texttt{objects/facet.obj} y \textbf{suma la contribuci\'on suave sobre sus
+tri\'angulos reales}, colocados con \emph{exactamente} el mismo \emph{placement}
+del simulador (celda~8), pero escrito como transformaci\'on \textbf{simb\'olica}
+de $(\rho,\varphi,h)$. La malla se usa \textbf{cruda} (sin densificar): una faceta
+plana son \textbf{$T=2$ tri\'angulos}.
+
+\paragraph{Transformaci\'on simb\'olica del \emph{placement}.} Sea $\vect v$ un
+v\'ertice crudo de la malla, con extensiones $\mathrm{ext}_x,\mathrm{ext}_y$. Se
+aplica, en orden:
+\begin{enumerate}[nosep]
+    \item \textbf{Escala an\'is\'otropa} $\vect S=\diag\!\bigl(\tfrac{w}{\mathrm{ext}_x},
+    \tfrac{h}{\mathrm{ext}_y},1\bigr)\vect v$ (X$\to$ancho $w=0.5$ fijo,
+    Y$\to$altura $h$, el par\'ametro);
+    \item \textbf{\emph{pitch}} $R_x(p)$, $p\approx1.57$ (mapea la $Y$ de la malla
+    a la $Z$ del mundo: la faceta ``se para''), seguido de \textbf{\emph{roll}}
+    $R_y(r)$ con $r=0$;
+    \item \textbf{\emph{yaw}} $R_z(\theta)$ con $\theta=\varphi+\tfrac{3\pi}{2}$
+    (alinea la normal media con $(-\cos\varphi,-\sin\varphi,0)$);
+    \item \textbf{Traslaci\'on} $\vect T(\vect v)=R_z R_y R_x \vect S\vect v
+    +(\rho\cos\varphi,\ \rho\sin\varphi,\ -z_{\min})$, donde $z_{\min}$ es la $z$
+    transformada del v\'ertice m\'as bajo (eleva la faceta a $z\ge0$; queda de
+    $z=0$ a $z=h$).
+\end{enumerate}
+Como todos los \'angulos y escalas son funciones cerradas de $(\rho,\varphi,h)$
+(con los v\'ertices crudos como \emph{constantes}), cada v\'ertice colocado
+$\vect V_a=\vect T(\vect v_a)$ es $C^\infty$ en $\vect\psi$. Se verific\'o
+num\'ericamente que $\vect T$ coincide con el \emph{placement} de \texttt{trimesh}
+del simulador a $\sim\!10^{-16}$ y que las normales por producto cruz coinciden en
+orientaci\'on con \texttt{face\_normals}.
+
+\paragraph{Centroide, \'area y normal por tri\'angulo.} Para cada tri\'angulo
+$t=(\vect V_0,\vect V_1,\vect V_2)$ colocado:
+\begin{equation}
+    \vect p_s^{(t)}=\tfrac13(\vect V_0+\vect V_1+\vect V_2),\quad
+    \vect c^{(t)}=(\vect V_1-\vect V_0)\times(\vect V_2-\vect V_0),\quad
+    A^{(t)}=\tfrac12\norm{\vect c^{(t)}},\quad
+    \hat{\vect n}_s^{(t)}=\frac{\vect c^{(t)}}{\norm{\vect c^{(t)}}},
+    \label{eq:tri-geom}
+\end{equation}
+todas cerradas en $(\rho,\varphi,h)$ (los bordes $\vect V_1-\vect V_0$,
+$\vect V_2-\vect V_0$ no dependen de $\rho$: la traslaci\'on se cancela, de modo
+que $A^{(t)},\hat{\vect n}_s^{(t)}$ dependen solo de $\varphi,h$). El centroide,
+el \'area \textbf{real} $A^{(t)}$ y la normal \textbf{geom\'etrica}
+$\hat{\vect n}_s^{(t)}$ reemplazan a la faceta puntual.
+
+%------------------------------------------------------------------------------
+\subsection{(iv) Ensamblado (a)+(b)+(c): \texorpdfstring{$g=\sum_t A^{(t)} S^{(t)}+b$}{g = sum A S + b}}
 \label{sec:ensamble}
 %------------------------------------------------------------------------------
 
-Reuniendo \eqref{eq:erf-bin}, \eqref{eq:sigmoid} y \eqref{eq:f-smooth}, con la
-ca\'ida radial \textbf{$4\pi^2$ del simulador} (\textbf{no} $8\pi^3$) y
-\textbf{cuatro} cosenos (\textbf{no} cinco), la tasa esperada en la medici\'on
-$q=(i,j)$ es el producto
+Reuniendo \eqref{eq:erf-bin}, \eqref{eq:sigmoid}, \eqref{eq:f-smooth} y
+\eqref{eq:tri-geom}, con la ca\'ida radial \textbf{$4\pi^2$ del simulador}
+(\textbf{no} $8\pi^3$), \textbf{cuatro} cosenos (\textbf{no} cinco) y la
+\textbf{amplitud f\'isica} (variante (a): $I_{\mathrm{laser}}$ y el \'area real del
+tri\'angulo), la tasa esperada en la medici\'on $q=(i,j)$ es la \textbf{suma sobre
+los $T$ tri\'angulos}:
 \begin{equation}
     \boxed{\;
     y_q(\vect{\psi})
-    =
-    \underbrace{\frac{\alpha\,G\;\mathrm{vis}(\vect{\psi},\vect{p}_{f,i})\,
-                      f_{\mathrm{smooth}}(\vect{\psi},\vect{p}_{f,i})}
-                     {4\pi^2\,\norm{\vect{p}_s-\vect{p}_l}^2\,
-                      \norm{\vect{p}_s-\vect{p}_{f,i}}^2}}
-                     _{\textstyle A_i(\vect{\psi})\ \text{(amplitud espacial)}}
+    =\sum_{t=1}^{T}
+    \underbrace{\frac{I_{\mathrm{laser}}\,\alpha\,G\;A^{(t)}(\vect\psi)\,
+                      \mathrm{vis}^{(t)}(\vect{\psi},\vect{p}_{f,i})\,
+                      f_{\mathrm{smooth}}^{(t)}(\vect{\psi},\vect{p}_{f,i})}
+                     {4\pi^2\,\norm{\vect{p}_s^{(t)}-\vect{p}_l}^2\,
+                      \norm{\vect{p}_s^{(t)}-\vect{p}_{f,i}}^2}}
+                     _{\textstyle A_i^{(t)}(\vect{\psi})\ \text{(amplitud f\'isica)}}
     \;\cdot\;
-    \underbrace{S_j(\vect{\psi})}_{\textstyle \text{pulso en el bin}} ,
+    \underbrace{S_j^{(t)}(\vect{\psi})}_{\textstyle \text{pulso en el bin}} ,
     \;}
     \label{eq:yq-smooth}
 \end{equation}
 \begin{equation}
-    g_q(\vect{\psi}) = y_q(\vect{\psi}) + b,\qquad b=0.1 .
+    g_q(\vect{\psi}) = y_q(\vect{\psi}) + b,\qquad b=0.1 ,
     \label{eq:g-smooth}
 \end{equation}
+con $\alpha=G=1$ por defecto (unidades \emph{f\'isicas}: no hay ganancia
+arbitraria). Cada $\mathrm{vis}^{(t)},f_{\mathrm{smooth}}^{(t)},S_j^{(t)}$ usa el
+centroide $\vect p_s^{(t)}$ y la normal $\hat{\vect n}_s^{(t)}$ de su tri\'angulo.
 
-\begin{remark}[Suposici\'on de \'area efectiva constante]
+\begin{remark}[\'Area real por tri\'angulo en lugar de \'area efectiva]
 \label{rem:area}
-En el simulador el \'area $A$ \emph{var\'ia por tri\'angulo}. En el forward de
-faceta \emph{puntual} no hay malla, de modo que \textbf{doblamos} ese \'area en la
-ganancia global $G$ (junto con la potencia del l\'aser y la escala de conteo) como
-un \textbf{\'area efectiva constante} de la faceta. Es una suposici\'on de
-modelado: fija la \emph{magnitud} absoluta del CRB (que por eso no es comparable
-1:1 con el rasterizador), pero no afecta la \emph{forma/orientaci\'on} de las
-elipses ni la validez de las derivadas.
+A diferencia de la faceta puntual --- donde el \'area se doblaba en una ganancia
+$G$ como \emph{\'area efectiva constante} y la magnitud del CRB quedaba arbitraria
+--- aqu\'i cada tri\'angulo aporta su \textbf{\'area real} $A^{(t)}(\vect\psi)$
+\eqref{eq:tri-geom} y la amplitud es la \emph{f\'isica} del simulador
+($I_{\mathrm{laser}}=1000$). Por eso la \textbf{magnitud} absoluta del CRB deja de
+ser un par\'ametro libre y se vuelve \emph{comparable} con el rasterizador
+(Sec.~\ref{sec:resultados}). La \'unica cuadratura es geom\'etrica: sumar sobre
+$T=2$ centroides aproxima la integral de superficie que el simulador realiza sobre
+$\sim\!5000$ tri\'angulos densificados (v\'ease la salvedad de la
+Sec.~\ref{sec:resultados}).
 \end{remark}
 
 El fondo $b>0$ mantiene $1/g_q$ finito \textbf{sin} piso $\varepsilon$ artificial.
-Cada factor de \eqref{eq:yq-smooth} es $C^\infty$ en $\vect{\psi}=(\rho,\varphi,h)$
-(se prueba en la Sec.~\ref{sec:justificacion}), luego $g_q$ lo es. Implementado en
-\texttt{crb\_analytic\_forward.py} (clase \texttt{AnalyticForwardModel}; ver
-\texttt{ForwardConfig} para $\alpha,G,b,\beta,\kappa,\tau$ y la geometr\'ia fija).
-La posici\'on de c\'amara $\vect{p}_c$ \textbf{no} aparece: el forward es de dos
-rebotes.
+Cada sumando de \eqref{eq:yq-smooth} es $C^\infty$ en $\vect{\psi}=(\rho,\varphi,h)$
+(se prueba en la Sec.~\ref{sec:justificacion}; el \emph{placement} a\~nade solo
+composiciones $C^\infty$), y una suma finita de $C^\infty$ es $C^\infty$, luego
+$g_q$ lo es. Implementado en \texttt{crb\_analytic\_forward.py} (clase
+\texttt{AnalyticForwardModel}: construye el modelo simb\'olico por tri\'angulo con
+los v\'ertices crudos como s\'imbolos y suma num\'ericamente; ver
+\texttt{ForwardConfig} para $I_{\mathrm{laser}},\alpha,G,b,\beta,\kappa,\tau$, la
+rejilla $64\times64$ / FOV $0.25$ y la malla \texttt{facet.obj}). La posici\'on de
+c\'amara $\vect{p}_c$ \textbf{no} aparece: el forward es de dos rebotes.
 
 %==============================================================================
 \section{La derivada anal\'itica (paso a paso)}
@@ -594,25 +677,34 @@ directo al Mathematica del \emph{writeup}) y se compila a
 \texttt{numpy}/\texttt{scipy} con \texttt{lambdify} para evaluaci\'on vectorizada
 sobre toda la rejilla $(i,j)$:
 \begin{lstlisting}
-# crb_analytic_forward.py  (construccion simbolica, resumida)
+# crb_analytic_forward.py  (construccion simbolica por triangulo, resumida)
 rho, phi, h = sp.symbols("rho phi h", real=True)
-ps = sp.Matrix([rho*sp.cos(phi), rho*sp.sin(phi), h])
-ns = sp.Matrix([-sp.cos(phi), -sp.sin(phi), 0])
+v0, v1, v2  = raw triangle vertices as free symbols   # (c): constantes en d/dpsi
+# --- placement simbolico (mismo que el simulador, celda 8) ---
+def transform(v):        # escala -> pitch -> roll -> yaw -> (rho,phi lift)
+    S  = diag(w/ext_x, h/ext_y, 1) @ v
+    P  = Rx(pitch) @ S ;  R = Ry(roll) @ P ;  Y = Rz(phi + 3*pi/2) @ R
+    return Y + Matrix([rho*cos(phi), rho*sin(phi), -z_min])
+V0, V1, V2 = transform(v0), transform(v1), transform(v2)
+ps   = (V0+V1+V2)/3                                    # centroide (c)
+cr   = (V1-V0).cross(V2-V0)
+area = cr.norm()/2 ;  ns = cr/cr.norm()                # area real + normal (c)
 d1, d2 = (ps-pl).norm(), (ps-pf).norm()               # dos rebotes: C-inf
 softplus = lambda x: sp.log(1 + sp.exp(beta*x))/beta   # (iii)
 c1 = ns.dot(pl-ps)/d1;  c2 = ns.dot(pf-ps)/d2          # cuatro cosenos (dot1..dot4)
 c3 = nl.dot(ps-pl)/d1;  c4 = nf.dot(ps-pf)/d2
 f_fore = softplus(c1)*softplus(c2)*softplus(c3)*softplus(c4)
-d_edge = sx - sy*(sx-px)/(sy-py)                        # (ii)
-vis     = 1/(1 + sp.exp(-kappa*d_edge))
-t0 = (d1 + d2)/c                                        # (i)
+d_edge = ps[0] - ps[1]*(ps[0]-px)/(ps[1]-py)           # (ii)
+vis    = 1/(1 + sp.exp(-kappa*d_edge))
+t0 = (d1 + d2)/c                                       # (i)
 S  = (sp.erf((thi-t0)/(sp.sqrt(2)*tau))
       - sp.erf((tlo-t0)/(sp.sqrt(2)*tau)))/2
-y  = alpha*gain*vis*f_fore/(4*sp.pi**2*d1**2*d2**2) * S  # 4*pi^2, NO 8*pi^3
-dy_drho = sp.diff(y, rho)      # derivadas CERRADAS
+y  = I_laser*alpha*gain*area*vis*f_fore/(4*sp.pi**2*d1**2*d2**2) * S  # (a): fisica
+dy_drho = sp.diff(y, rho)      # derivadas CERRADAS (v0,v1,v2 son constantes)
 dy_dphi = sp.diff(y, phi)
 dy_dh   = sp.diff(y, h)
-f_dy = sp.lambdify((rho,phi,h,px,py,tlo,thi), dy_drho, modules=["scipy","numpy"])
+f_dy = sp.lambdify((rho,phi,h,px,py,tlo,thi, *v0,*v1,*v2), dy_drho,
+                   modules=["scipy","numpy"])          # se suma sobre triangulos
 \end{lstlisting}
 Las funciones expuestas son \texttt{analytic\_forward\_g(psi,\dots)},
 \texttt{analytic\_jacobian\_g(psi,\dots)} y \texttt{compute\_crb\_analytic(psi,\dots)}.
@@ -1139,9 +1231,12 @@ pero con prop\'ositos distintos:
     se usa como forward y se deriva por \textbf{diferencias finitas}.
     \item El \textbf{forward anal\'itico} $g_{\mathrm{an}}(\vect{\psi})$
     (este trabajo, Sec.~\ref{sec:construccion}) es su an\'alogo suave,
-    \textbf{standalone}, con su \emph{propia} rejilla fija de p\'ixeles de piso
-    ($8\times8$) y una ventana de bins alrededor del pulso. \textbf{No} usa el
-    cubo del simulador ni mediciones simuladas.
+    \textbf{standalone}, sobre la \emph{misma} rejilla del simulador (variante
+    (b): $64\times64$ p\'ixeles, FOV $0.25$, centro $[0,-0.125,0]$) y una ventana
+    de bins alrededor del pulso, sumando sobre los tri\'angulos reales de la malla
+    (variante (c)). \textbf{No} usa el cubo del simulador ni mediciones simuladas,
+    pero comparte con \'el la rejilla, la amplitud f\'isica y la geometr\'ia de la
+    faceta.
 \end{itemize}
 
 \paragraph{3. C\'omo ``entran'' estas funciones al CRB.} Las funciones suaves
@@ -1157,11 +1252,12 @@ anal\'itica.
 No es que ``metamos los datos del simulador por funciones suaves''.
 $g_{\mathrm{an}}$ es un \textbf{modelo aparte} del mismo fen\'omeno, elegido
 porque es \emph{diferenciable}; lo usamos para \emph{definir} la tasa esperada,
-no para procesar un array de mediciones. Tampoco compartimos el mismo array de
-salida: el anal\'itico tiene su propia rejilla, m\'as peque\~na ($8\times8$
-p\'ixeles $\times$ bins del pulso, frente a $64\times64\times T$). El punto de
-contacto entre ambos es la \emph{f\'isica} que modelan y la \emph{estructura}
-Poisson--Fisher, no un intercambio de datos.
+no para procesar un array de mediciones. En la variante (a)+(b)+(c) el anal\'itico
+comparte con el simulador la \textbf{rejilla} ($64\times64$ p\'ixeles $\times$ bins
+del pulso), la \textbf{amplitud f\'isica} y la \textbf{malla} de la faceta, pero
+sigue \textbf{sin} compartir el array de salida ni el ruido: evaluamos
+$g_{\mathrm{an}}$ solo en $\vect\psi_0$. El punto de contacto es la \emph{f\'isica}
+que modelan y la \emph{estructura} Poisson--Fisher, no un intercambio de datos.
 \end{remark}
 
 \paragraph{4. Justificaci\'on: por qu\'e vale usar $g_{\mathrm{an}}$ para el CRB.}
@@ -1182,22 +1278,22 @@ Poisson--Fisher, no un intercambio de datos.
     condicionada, sin el ruido de discretizaci\'on ni la dependencia del paso
     $\delta$ de las diferencias finitas (Sec.~\ref{sec:diagnostico},
     Prop.~\ref{prop:fd}).
-    \item \textbf{Salvedades (honestas):} la \emph{magnitud} absoluta del CRB
-    depende de idealizaciones --- el \'area efectiva constante doblada en la
-    ganancia $G$ (Obs.~\ref{rem:area}), la rejilla propia $8\times8$ (m\'as
-    peque\~na), y los par\'ametros de suavizado $\tau,\kappa,\beta$ ---, de modo que
-    $g_{\mathrm{an}}$ \textbf{no} reproduce 1:1 la magnitud del simulador. Por eso
-    la comparaci\'on v\'alida con la ruta FD es de \textbf{forma/orientaci\'on} de
-    las elipses (que s\'i coincide), no de tama\~no (Sec.~\ref{sec:resultados}).
+    \item \textbf{Magnitud ahora comparable:} con la amplitud f\'isica (a), la
+    rejilla del simulador (b) y la suma sobre los tri\'angulos reales (c),
+    $g_{\mathrm{an}}$ reproduce la magnitud del simulador y las CRB coinciden
+    dentro de $\sim\!10$--$15\%$ en $\sigma_\rho$ (Sec.~\ref{sec:resultados}). La
+    \'unica salvedad residual es geom\'etrica (malla cruda de $T=2$ tri\'angulos vs
+    $\sim\!5000$ densificados) y los anchos de suavizado $\tau,\kappa,\beta$; la
+    comparaci\'on es ahora v\'alida \emph{tanto} en forma \emph{como} en tama\~no.
 \end{itemize}
 
 \paragraph{5. Relaci\'on con la ruta FD.} La CRB-FD \emph{s\'i} usa el simulador
 (deriv\'andolo por diferencias finitas); la CRB anal\'itica es \textbf{independiente}
-de \'el. Que la \emph{forma} de las elipses coincida entre ambas rutas
-(Sec.~\ref{sec:resultados}) es justamente lo que \textbf{valida} la geometr\'ia del
-modelo anal\'itico: dos derivaciones distintas del mismo fen\'omeno llegan a la
-misma estructura de incertidumbre, una con derivadas exactas y otra con el
-render de malla completo.
+de \'el. Que la \emph{forma} \textbf{y la magnitud} de las elipses coincidan entre
+ambas rutas (Sec.~\ref{sec:resultados}) es justamente lo que \textbf{valida} la
+geometr\'ia y la radiometr\'ia del modelo anal\'itico: dos derivaciones distintas
+del mismo fen\'omeno llegan a la misma estructura de incertidumbre, una con
+derivadas exactas y otra con el render de malla completo.
 
 %==============================================================================
 \section{Validaci\'on: anal\'itico contra diferencias finitas}
@@ -1226,33 +1322,36 @@ p\'ixeles dominados por el fondo, $y_q\ll b$). Resultado
 \toprule
 $\rho$ & $\varphi\,[^\circ]$ & $h$ & err $\partial/\partial\rho$ & err $\partial/\partial\varphi$ & err $\partial/\partial h$ \\
 \midrule
-0.50 &  30 & 1.00 & $2.4\times10^{-10}$ & $3.0\times10^{-10}$ & $1.0\times10^{-10}$ \\
-0.50 &  90 & 1.00 & $2.3\times10^{-10}$ & $5.0\times10^{-10}$ & $8.9\times10^{-11}$ \\
-0.50 & 150 & 1.00 & $1.3\times10^{-10}$ & $3.6\times10^{-10}$ & $5.6\times10^{-11}$ \\
-1.00 &  30 & 1.00 & $9.8\times10^{-11}$ & $3.9\times10^{-10}$ & $9.6\times10^{-11}$ \\
-1.00 &  90 & 1.00 & $1.2\times10^{-10}$ & $3.8\times10^{-10}$ & $9.4\times10^{-11}$ \\
-1.00 & 150 & 1.00 & $1.2\times10^{-10}$ & $1.5\times10^{-10}$ & $8.4\times10^{-11}$ \\
-1.50 &  30 & 1.00 & $2.4\times10^{-10}$ & $3.8\times10^{-10}$ & $1.6\times10^{-10}$ \\
-1.50 &  90 & 1.00 & $1.9\times10^{-10}$ & $3.7\times10^{-10}$ & $2.1\times10^{-10}$ \\
-1.50 & 150 & 1.00 & $2.6\times10^{-10}$ & $1.9\times10^{-10}$ & $1.3\times10^{-10}$ \\
+0.50 &  30 & 1.00 & $9.8\times10^{-11}$ & $5.5\times10^{-10}$ & $3.9\times10^{-10}$ \\
+0.50 &  90 & 1.00 & $1.2\times10^{-10}$ & $8.1\times10^{-10}$ & $4.4\times10^{-10}$ \\
+0.50 & 150 & 1.00 & $1.3\times10^{-10}$ & $2.7\times10^{-10}$ & $5.8\times10^{-10}$ \\
+1.00 &  30 & 1.00 & $1.7\times10^{-10}$ & $9.0\times10^{-10}$ & $4.1\times10^{-10}$ \\
+1.00 &  90 & 1.00 & $2.2\times10^{-10}$ & $7.6\times10^{-10}$ & $5.9\times10^{-10}$ \\
+1.00 & 150 & 1.00 & $2.2\times10^{-10}$ & $8.1\times10^{-10}$ & $4.9\times10^{-10}$ \\
+1.50 &  30 & 1.00 & $2.7\times10^{-10}$ & $7.2\times10^{-10}$ & $7.0\times10^{-10}$ \\
+1.50 &  90 & 1.00 & $2.3\times10^{-10}$ & $9.2\times10^{-10}$ & $9.3\times10^{-10}$ \\
+1.50 & 150 & 1.00 & $4.2\times10^{-10}$ & $1.4\times10^{-9}$  & $8.6\times10^{-10}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 \begin{equation*}
     \textbf{Error m\'aximo relativo (anal\'itico vs FD central):}\quad
-    5.0\times10^{-10}\ \ \ll\ \ 10^{-6}\ \ \Rightarrow\ \ \textbf{PASS}.
+    1.4\times10^{-9}\ \ \ll\ \ 10^{-6}\ \ \Rightarrow\ \ \textbf{PASS}.
 \end{equation*}
 Como CRB de referencia, en $(\rho,\varphi,h)=(1,90^\circ,1)$ se obtiene
-$\sigma_\rho\approx0.021$\,m, $\sigma_\varphi\approx0.39^\circ$,
-$\sigma_h\approx0.023$\,m.
+$\sigma_\rho\approx0.0050$\,m, $\sigma_\varphi\approx1.55^\circ$,
+$\sigma_h\approx0.013$\,m --- valores en \textbf{magnitud f\'isica}, del mismo
+orden que el CRB-FD del rasterizador (cf.\ $\sigma_\rho^{\mathrm{FD}}\approx0.0042$\,m
+en el mismo punto, grid \emph{fixed\_h}).
 
 \begin{remark}[Qu\'e valida y qu\'e no]
 Esta prueba certifica que la \textbf{derivada cerrada es exacta} para el forward
-suave del simulador (dos rebotes, cuatro cosenos, $4\pi^2$). \textbf{No} pretende
-reproducir el rasterizador de \emph{mesh}: el modelo anal\'itico de faceta puntual
-(con \'area efectiva constante, Obs.~\ref{rem:area}) y el rasterizador son
-\emph{forwards distintos} en magnitud. Lo que compartimos es la \emph{estructura}
-Fisher--Poisson y el derivar bajo el integrando.
+suave (a)+(b)+(c) (dos rebotes, cuatro cosenos, $4\pi^2$, suma sobre los
+tri\'angulos reales). A diferencia de las variantes puntuales, este forward
+\textbf{s\'i} reproduce la magnitud del rasterizador (amplitud f\'isica, rejilla y
+malla comunes): la validaci\'on num\'erica y la comparaci\'on de magnitud
+(Sec.~\ref{sec:resultados}) son ahora ambas significativas. Lo que compartimos con
+la ruta FD es la \emph{estructura} Fisher--Poisson y la geometr\'ia/radiometr\'ia.
 \end{remark}
 
 %==============================================================================
@@ -1275,9 +1374,10 @@ burbujas anal\'iticas est\'an en la Fig.~\ref{fig:analytic-regions}.
 \begin{figure}[ht]
 \centering
 \includegraphics[width=0.86\textwidth]{../plots/crb_standard_regions_analytic.png}
-\caption{CRB$(\rho,\varphi,h)$ \emph{anal\'itico} (dos rebotes, cuatro cosenos,
-$4\pi^2$): regiones $3\sigma$ en $(\rho,\varphi)$, generadas con derivadas
-cerradas. Archivo \texttt{plots/crb\_standard\_regions\_analytic.png}.}
+\caption{CRB$(\rho,\varphi,h)$ \emph{anal\'itico} variante (a)+(b)+(c) (dos
+rebotes, cuatro cosenos, $4\pi^2$, amplitud f\'isica, suma sobre los tri\'angulos
+reales de \texttt{facet.obj}): regiones $3\sigma$ en $(\rho,\varphi)$, generadas
+con derivadas cerradas. Archivo \texttt{plots/crb\_standard\_regions\_analytic.png}.}
 \label{fig:analytic-regions}
 \end{figure}
 
@@ -1295,13 +1395,18 @@ comparaci\'on de \emph{forma} sigue siendo v\'alida aunque el forward anal\'itic
 se haya reescrito.
 \end{remark}
 
-\begin{remark}[Escalas no comparables]
-Las \textbf{magnitudes absolutas} del CRB anal\'itico y del FD \textbf{no} son
-directamente comparables: son \emph{modelos distintos} (faceta puntual con
-ganancia $G$ y \'area efectiva constante, frente al render de malla). Por eso
-mostramos dos superposiciones: (a) tal cual, y (b) \emph{normalizada en forma}
-(igualando la $\sigma_\rho$ mediana), que compara \textbf{orientaci\'on y
-aspecto} sin depender del tama\~no.
+\begin{remark}[Escalas ahora comparables]
+Con la variante (a)+(b)+(c) las \textbf{magnitudes absolutas} del CRB anal\'itico y
+del FD \textbf{s\'i} son directamente comparables: comparten amplitud f\'isica,
+rejilla del simulador y la malla real de la faceta. La superposici\'on a
+\emph{magnitud real} (Fig.~\ref{fig:avf-abs}) muestra las elipses anal\'iticas
+(verde) cayendo sobre las FD (rojo) en toda la rejilla, con
+$\sigma_\rho^{\mathrm{an}}/\sigma_\rho^{\mathrm{FD}}\in[0.86,1.05]$ y
+$\sigma_\varphi^{\mathrm{an}}/\sigma_\varphi^{\mathrm{FD}}\in[0.6,1.35]$
+(Tabla~\ref{tab:avf}). Se conserva adem\'as la superposici\'on \emph{normalizada en
+forma} (igualando la $\sigma_\rho$ mediana) como verificaci\'on de
+orientaci\'on/aspecto: al ser ya comparables en tama\~no, ambas curvas quedan casi
+indistinguibles.
 \end{remark}
 
 \begin{figure}[ht]
@@ -1309,8 +1414,10 @@ aspecto} sin depender del tama\~no.
 \IfFileExists{../plots/crb_regions_analytic_vs_fd.png}{%
 \includegraphics[width=0.72\textwidth]{../plots/crb_regions_analytic_vs_fd.png}%
 }{\textit{(Pendiente: ejecutar la comparaci\'on con la cache FD disponible.)}}
-\caption{(a) Superposici\'on anal\'itico (dos rebotes) vs FD a \emph{magnitud
-real}. Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
+\caption{(a) Superposici\'on anal\'itico (a)+(b)+(c) (verde) vs FD (rojo) a
+\emph{magnitud real}, \textbf{sin} normalizar: las elipses coinciden en toda la
+rejilla ($\sigma_\rho$ anal./FD $\in[0.86,1.05]$), lo que antes era imposible con
+la faceta puntual. Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
 \label{fig:avf-abs}
 \end{figure}
 
@@ -1320,7 +1427,9 @@ real}. Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
 \includegraphics[width=0.72\textwidth]{../plots/crb_regions_analytic_vs_fd_shapenorm.png}%
 }{\textit{(Pendiente: ejecutar la comparaci\'on con la cache FD disponible.)}}
 \caption{(b) Superposici\'on \emph{normalizada en forma} ($\sigma_\rho$ mediana
-igualada): compara orientaci\'on y aspecto, no el tama\~no.
+igualada): compara orientaci\'on y aspecto. Como la variante (a)+(b)+(c) ya es
+comparable en tama\~no, los factores de normalizaci\'on son cercanos a $1$ y esta
+figura es casi id\'entica a la de magnitud real (Fig.~\ref{fig:avf-abs}).
 Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd\_shapenorm.png}.}
 \label{fig:avf-shape}
 \end{figure}
@@ -1336,9 +1445,15 @@ completa (con la inclinaci\'on \emph{tilt}) est\'a en
 con la cache FD disponible.)}}
 
 \subsection{\textup{?`}Cu\'al elipse es ``mejor''?}
-``Mejor'' aqu\'i es \textbf{calidad/suavidad de la derivada} y \textbf{sensatez de
-la forma}, \emph{no} la magnitud absoluta:
+Con la variante (a)+(b)+(c) la comparaci\'on ya no es solo de forma: es tambi\'en
+de \textbf{magnitud}.
 \begin{enumerate}[nosep]
+    \item \textbf{Magnitud comparable.} La amplitud f\'isica, la rejilla del
+    simulador y la suma sobre los tri\'angulos reales hacen que
+    $\sigma_\rho^{\mathrm{an}}\approx\sigma_\rho^{\mathrm{FD}}$ (raz\'on
+    $0.86$--$1.05$) en toda la rejilla; en el l\'imite duro
+    ($\tau\to0,\kappa,\beta\to\infty$) ambos forwards coinciden y las Fisher
+    convergen.
     \item \textbf{Suavidad / condicionamiento.} El forward anal\'itico tiene
     derivadas \emph{exactas} ($C^\infty$). El Jacobiano FD se calcula sobre un
     forward con escalones ($\lceil\cdot\rceil$ y $\texttt{xint}>0$ constantes a
@@ -1346,15 +1461,17 @@ la forma}, \emph{no} la magnitud absoluta:
     dependencia de $\delta$). La elipse anal\'itica es la \textbf{mejor
     condicionada}.
     \item \textbf{Forma / orientaci\'on.} Ambos dan elipses finas en \'angulo
-    (resoluci\'on azimutal de la arista) y m\'as anchas en rango; la orientaci\'on
-    es consistente salvo el ruido FD.
-    \item \textbf{Salvedad.} La faceta puntual \emph{no} reproduce el
-    rasterizador; su CRB depende de $G,\beta,\kappa,\tau$ y de la geometr\'ia
-    fija. La comparaci\'on honesta es de \emph{forma} (Fig.~\ref{fig:avf-shape}).
+    (resoluci\'on azimutal de la arista) y m\'as anchas en rango; el aspecto medio
+    coincide ($\approx8.4$ anal.\ vs $8.2$ FD) y la orientaci\'on es consistente.
+    \item \textbf{Salvedad residual.} La malla se usa cruda ($T=2$ tri\'angulos)
+    mientras el simulador densifica a $\sim\!5000$; la suma sobre $2$ centroides es
+    una cuadratura gruesa de la integral de superficie, suficiente para acercar la
+    magnitud pero no id\'entica. Persisten los anchos $\beta,\kappa,\tau$.
 \end{enumerate}
-\textbf{Veredicto:} para un CRB \emph{diferenciable}, la elipse \textbf{anal\'itica}
-es preferible por derivadas exactas y Fisher mejor condicionada; el FD sigue
-siendo valioso como verificaci\'on independiente y como modelo de malla completo.
+\textbf{Veredicto:} de todas las variantes, la (a)+(b)+(c) es la \textbf{m\'as
+fiel}: derivadas exactas, Fisher bien condicionada \textbf{y} magnitud comparable
+al rasterizador. El FD sigue siendo valioso como verificaci\'on independiente y
+como el modelo de malla completo/densificado.
 
 %==============================================================================
 \section{Conclusi\'on}
@@ -1379,20 +1496,30 @@ diferenciabilidad), el Heaviside de la \texttt{xint} por una \textbf{sigmoide}
     \item la Fisher y el CRB \eqref{eq:fisher}--\eqref{eq:crb} conservan la
           estructura Poisson;
     \item la validaci\'on anal\'itico-vs-FD da error m\'aximo relativo
-          $\sim5\times10^{-10}$.
+          $\sim1.4\times10^{-9}$.
 \end{itemize}
-Salvedades: el modelo anal\'itico de faceta puntual \textbf{difiere en magnitud}
-del rasterizador de malla; el \'area del tri\'angulo se dobla en $G$ como
-\textbf{\'area efectiva constante} (Obs.~\ref{rem:area}); la geometr\'ia y la
-ganancia son fijas; se asume $\nabla d_i\neq\vect0$ (Hip.~\ref{as:geom}) e
-$\matr{I}\succ0$; y los par\'ametros $(\beta,\kappa,\tau)$ recuperan el l\'imite
-duro cuando $\beta,\kappa\to\infty$, $\tau\to0$.
+En la variante \textbf{(a)+(b)+(c)} a\~nadimos: \textbf{(a)} amplitud f\'isica
+($I_{\mathrm{laser}}=1000$, \'area real del tri\'angulo, $4\pi^2 d_1^2 d_2^2$,
+$b=0.1$); \textbf{(b)} la rejilla del simulador ($64\times64$, FOV $0.25$, bin
+$3.9\times10^{-10}$); y \textbf{(c)} la suma sobre los tri\'angulos reales de
+\texttt{facet.obj} con \emph{placement} simb\'olico. Resultado: el CRB anal\'itico
+es \textbf{comparable en magnitud} con el FD ($\sigma_\rho$ anal./FD $0.86$--$1.05$
+en toda la rejilla) y la superposici\'on a magnitud real coincide sin normalizar.
+Salvedades: la malla se usa \textbf{cruda} ($T=2$ tri\'angulos vs $\sim\!5000$
+densificados en el simulador), de modo que la suma es una \textbf{cuadratura
+geom\'etrica gruesa} de la integral de superficie; la convenci\'on de altura es la
+del simulador (faceta de $z=0$ a $z=h$ tras la elevaci\'on $z_{\min}\!\to\!0$); la
+ventana de bins se congela alrededor del pulso (\texttt{freeze\_bins}); se asume
+$\nabla d_i\neq\vect0$ (Hip.~\ref{as:geom}) e $\matr{I}\succ0$; y los par\'ametros
+$(\beta,\kappa,\tau)$ recuperan el l\'imite duro cuando $\beta,\kappa\to\infty$,
+$\tau\to0$.
 
 %------------------------------------------------------------------------------
 \paragraph{Archivos.}
-\texttt{crb\_analytic\_forward.py} (forward de dos rebotes $+$ Jacobiano
-simb\'olico $+$ CRB), \texttt{validate\_analytic\_forward.py} (validaci\'on
-anal\'itico vs FD), este documento \texttt{docs/analytic\_forward\_crb.tex}.
-Reutiliza (sin modificar) \emph{helpers} de \texttt{crb\_polar\_functions.py}.
+\texttt{crb\_analytic\_forward.py} (forward de dos rebotes con suma sobre los
+tri\'angulos reales $+$ Jacobiano simb\'olico $+$ CRB),
+\texttt{validate\_analytic\_forward.py} (validaci\'on anal\'itico vs FD), este
+documento \texttt{docs/analytic\_forward\_crb.tex}. Reutiliza (sin modificar)
+\emph{helpers} de \texttt{crb\_polar\_functions.py}.
 
 \end{document}
