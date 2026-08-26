@@ -89,18 +89,21 @@ gaussiano (diferencia de $\erf$), el umbral por una sigmoide de penumbra, y los
 tri\'angulo, $4\pi^2 d_1^2 d_2^2$, pulso gaussiano de \'area unitaria, fondo
 $b\!=\!0.1$); \textbf{(b)} la \emph{misma rejilla} del simulador ($64\times64$,
 FOV $0.25$, centro $[0,-0.125,0]$, bin $3.9\times10^{-10}$\,s); y \textbf{(c)} una
-\textbf{suma sobre los tri\'angulos reales} de \texttt{objects/facet.obj}, cuyos
-v\'ertices se colocan con el \emph{mismo} \emph{placement} del simulador escrito
-como transformaci\'on \textbf{simb\'olica} de $(\rho,\varphi,h)$ (escala
+\textbf{suma sobre los tri\'angulos reales} de \texttt{objects/facet.obj}
+\textbf{densificado} ($T=512$), cuyos v\'ertices se colocan con el \emph{mismo}
+\emph{placement} del simulador escrito como transformaci\'on \textbf{simb\'olica}
+de $(\rho,\varphi,h)$ (escala
 an\'is\'otropa, \emph{pitch}, \emph{yaw} $=\varphi+3\pi/2$, elevaci\'on
 $z_{\min}\!\to\!0$ y traslaci\'on a $(\rho\cos\varphi,\rho\sin\varphi,0)$). As\'i el
 forward diferenciable reproduce la funci\'on del simulador en el l\'imite duro y,
 por primera vez, las \textbf{CRB son comparables en magnitud} (no solo en forma):
 la superposici\'on anal\'itico-vs-FD a \emph{magnitud real} coincide dentro de
-$\sim\!10$--$15\%$ en $\sigma_\rho$. Las derivadas se obtienen
-\textbf{simb\'olicamente} con \texttt{sympy} (an\'alogo al Mathematica del
+$\sim\!10\%$ en \textbf{ambos} ejes ($\sigma_\rho$ \emph{y} $\sigma_\varphi$),
+gracias a densificar la faceta y a ligar los anchos de suavizado a la
+discretizaci\'on ($\kappa=1/$p\'ixel, $\tau=\Delta t/\sqrt{12}$). Las derivadas se
+obtienen \textbf{simb\'olicamente} con \texttt{sympy} (an\'alogo al Mathematica del
 \emph{writeup}) y se validan contra diferencias finitas del mismo forward suave,
-con error m\'aximo relativo $\sim\!1.4\times10^{-9}$. C\'odigo:
+con error m\'aximo relativo $\sim\!5.5\times10^{-9}$. C\'odigo:
 \texttt{crb\_analytic\_forward.py}; validaci\'on:
 \texttt{validate\_analytic\_forward.py}. Importante: el CRB es funci\'on
 \emph{solo del modelo} (no consume datos), y este forward anal\'itico es un
@@ -306,8 +309,12 @@ funci\'on entera (Lema~\ref{lem:erf}) --- as\'i que $S_j$ es $C^\infty$ en
 $\vect{\psi}$ a trav\'es de $t_0(\vect{\psi})$; (3) \textbf{conserva la masa}:
 $\sum_j S_j\to1$, de modo que al sumar sobre bins se recupera la ``intensidad''
 del rasterizador, pero ahora la masa se traspasa \emph{gradualmente} entre bins
-vecinos. Esta es \textbf{la pieza central}. Por defecto
-$\tau=\Delta t=3.9\times10^{-10}$\,s.
+vecinos. Esta es \textbf{la pieza central}. Por defecto se toma
+$\tau=\Delta t/\sqrt{12}\approx1.13\times10^{-10}$\,s: as\'i la gaussiana tiene
+\emph{la misma varianza} que la caja (\emph{top-hat}) de anchura $\Delta t$ que
+produce el $\lceil\cdot\rceil$ del simulador (una caja de ancho $\Delta t$ tiene
+varianza $\Delta t^2/12$). Esta elecci\'on de $\tau$ ligada a la discretizaci\'on
+es la que hace coincidir $\sigma_\rho$ con el FD.
 
 \paragraph{Convergencia, conservaci\'on de masa y el \emph{trade-off}.} El
 parecido con la caja dura lo controla el cociente $\tau/\Delta t$: cuanto menor
@@ -427,8 +434,12 @@ $\kappa\to\infty$ (con convergencia uniforme fuera de una capa de ancho
 $\sim1/\kappa$, Prop.~\ref{prop:sigmoid}); y (4) tiene \textbf{derivada simple}
 $\sigma'=\kappa\,\sigma(1-\sigma)$. El par\'ametro $\kappa$ es el ancho de
 \emph{penumbra}: la transici\'on sombra$\to$luz ocurre en una banda de
-semi-anchura $\sim1/\kappa$ (metros). Por defecto $\kappa=60$ (penumbra
-$\sim1.7$\,cm, comparable al tama\~no de p\'ixel).
+semi-anchura $\sim1/\kappa$ (metros). Por defecto se toma $\kappa=1/\text{pixel}=
+\text{cam\_pixel\_dim}/\text{camera\_FOV}=64/0.25=256$ (penumbra
+$\sim1/\kappa\approx0.39$\,cm $=$ un p\'ixel): la banda de penumbra tiene el ancho
+de un p\'ixel, igual que el borde de sombra que el simulador muestrea con su
+\emph{subpixel} ($4{\times}4$). Esta elecci\'on de $\kappa$ ligada al tama\~no de
+p\'ixel es la que hace coincidir $\sigma_\varphi$ con el FD.
 
 \begin{figure}[ht]
 \centering
@@ -438,10 +449,10 @@ $\sim1.7$\,cm, comparable al tama\~no de p\'ixel).
 \caption{Ocultamiento (paso (ii)). \textbf{Izquierda:} funci\'on \textbf{no
 derivable} (dura): el Heaviside $\mathbf 1\{d_{\mathrm{edge}}>0\}$, con salto en
 $d_{\mathrm{edge}}=0$. \textbf{Derecha:} su \textbf{reemplazo suave}, la sigmoide
-$\sigma(\kappa\,d_{\mathrm{edge}})$ \eqref{eq:sigmoid} con $\kappa=60$ (penumbra
-$\sim1/\kappa$); una segunda curva con $\kappa=200$ sugiere el l\'imite
-$\kappa\to\infty$ (Heaviside punteado de referencia). Par\'ametro real de
-\texttt{ForwardConfig}.}
+$\sigma(\kappa\,d_{\mathrm{edge}})$ \eqref{eq:sigmoid} con $\kappa=256$ ($=1/$p\'ixel,
+penumbra $\sim1/\kappa\approx0.39$\,cm); una segunda curva con $\kappa=1000$ sugiere
+el l\'imite $\kappa\to\infty$ (Heaviside punteado de referencia). Par\'ametro real
+de \texttt{ForwardConfig}.}
 \label{fig:smooth-occlusion}
 \end{figure}
 
@@ -515,8 +526,13 @@ $(-\cos\varphi,-\sin\varphi,0)$. La variante \textbf{(c)} en cambio lee la malla
 real \texttt{objects/facet.obj} y \textbf{suma la contribuci\'on suave sobre sus
 tri\'angulos reales}, colocados con \emph{exactamente} el mismo \emph{placement}
 del simulador (celda~8), pero escrito como transformaci\'on \textbf{simb\'olica}
-de $(\rho,\varphi,h)$. La malla se usa \textbf{cruda} (sin densificar): una faceta
-plana son \textbf{$T=2$ tri\'angulos}.
+de $(\rho,\varphi,h)$. La malla plana cruda son solo $2$ tri\'angulos ---una
+\emph{cuadratura} demasiado gruesa de la integral de superficie de la faceta---,
+as\'i que la \textbf{densificamos} subdividiendo (\texttt{subdivisions}$=4$:
+$2\!\to\!8\!\to\!32\!\to\!128\!\to\!\mathbf{512}$ tri\'angulos) y sumamos sobre los
+$T=512$ tri\'angulos densificados. La subdivisi\'on es \emph{planar}, de modo que
+las extensiones y el v\'ertice de $z_{\min}$ no cambian: el \emph{placement}
+simb\'olico es id\'entico, solo crece el n\'umero de sumandos num\'ericos.
 
 \paragraph{Transformaci\'on simb\'olica del \emph{placement}.} Sea $\vect v$ un
 v\'ertice crudo de la malla, con extensiones $\mathrm{ext}_x,\mathrm{ext}_y$. Se
@@ -600,9 +616,11 @@ $G$ como \emph{\'area efectiva constante} y la magnitud del CRB quedaba arbitrar
 ($I_{\mathrm{laser}}=1000$). Por eso la \textbf{magnitud} absoluta del CRB deja de
 ser un par\'ametro libre y se vuelve \emph{comparable} con el rasterizador
 (Sec.~\ref{sec:resultados}). La \'unica cuadratura es geom\'etrica: sumar sobre
-$T=2$ centroides aproxima la integral de superficie que el simulador realiza sobre
-$\sim\!5000$ tri\'angulos densificados (v\'ease la salvedad de la
-Sec.~\ref{sec:resultados}).
+los centroides de los tri\'angulos aproxima la integral de superficie que el
+simulador realiza sobre $\sim\!5000$ tri\'angulos densificados; por eso
+densificamos a $T=512$, con lo que la cuadratura \emph{converge} (los cambios de
+$128$ a $512$ y a $2048$ tri\'angulos son $<0.5\%$) y la magnitud del CRB coincide
+con el FD (Sec.~\ref{sec:resultados}).
 \end{remark}
 
 El fondo $b>0$ mantiene $1/g_q$ finito \textbf{sin} piso $\varepsilon$ artificial.
@@ -696,15 +714,16 @@ c3 = nl.dot(ps-pl)/d1;  c4 = nf.dot(ps-pf)/d2
 f_fore = softplus(c1)*softplus(c2)*softplus(c3)*softplus(c4)
 d_edge = ps[0] - ps[1]*(ps[0]-px)/(ps[1]-py)           # (ii)
 vis    = 1/(1 + sp.exp(-kappa*d_edge))
-t0 = (d1 + d2)/c                                       # (i)
-S  = (sp.erf((thi-t0)/(sp.sqrt(2)*tau))
-      - sp.erf((tlo-t0)/(sp.sqrt(2)*tau)))/2
-y  = I_laser*alpha*gain*area*vis*f_fore/(4*sp.pi**2*d1**2*d2**2) * S  # (a): fisica
-dy_drho = sp.diff(y, rho)      # derivadas CERRADAS (v0,v1,v2 son constantes)
-dy_dphi = sp.diff(y, phi)
-dy_dh   = sp.diff(y, h)
-f_dy = sp.lambdify((rho,phi,h,px,py,tlo,thi, *v0,*v1,*v2), dy_drho,
-                   modules=["scipy","numpy"])          # se suma sobre triangulos
+t0 = (d1 + d2)/c                                       # (i) tiempo de vuelo
+A  = I_laser*alpha*gain*area*vis*f_fore/(4*sp.pi**2*d1**2*d2**2)  # (a): amplitud fisica
+# y = A*S(t0); A y t0 NO dependen del bin -> se evaluan una vez por (triangulo,pixel)
+amp_jac = [A, sp.diff(A,rho), sp.diff(A,phi), sp.diff(A,h),
+           t0, sp.diff(t0,rho), sp.diff(t0,phi), sp.diff(t0,h)]   # derivadas CERRADAS
+f = sp.lambdify((rho,phi,h,px,py,*v0,*v1,*v2), amp_jac,
+                modules=["scipy","numpy"], cse=True)   # CSE: comparte subexpresiones
+# el pulso S=1/2[erf((thi-t0)/(sqrt2 tau)) - erf((tlo-t0)/...)] y dS/dt0 se
+# ensamblan NUMERICAMENTE sobre los bins; dy = dA*S + A*(dS/dt0)*dt0.
+# La malla se DENSIFICA (subdivisions=4 -> 512 triangulos) y se SUMA sobre ellos.
 \end{lstlisting}
 Las funciones expuestas son \texttt{analytic\_forward\_g(psi,\dots)},
 \texttt{analytic\_jacobian\_g(psi,\dots)} y \texttt{compute\_crb\_analytic(psi,\dots)}.
@@ -1279,12 +1298,13 @@ que modelan y la \emph{estructura} Poisson--Fisher, no un intercambio de datos.
     $\delta$ de las diferencias finitas (Sec.~\ref{sec:diagnostico},
     Prop.~\ref{prop:fd}).
     \item \textbf{Magnitud ahora comparable:} con la amplitud f\'isica (a), la
-    rejilla del simulador (b) y la suma sobre los tri\'angulos reales (c),
-    $g_{\mathrm{an}}$ reproduce la magnitud del simulador y las CRB coinciden
-    dentro de $\sim\!10$--$15\%$ en $\sigma_\rho$ (Sec.~\ref{sec:resultados}). La
-    \'unica salvedad residual es geom\'etrica (malla cruda de $T=2$ tri\'angulos vs
-    $\sim\!5000$ densificados) y los anchos de suavizado $\tau,\kappa,\beta$; la
-    comparaci\'on es ahora v\'alida \emph{tanto} en forma \emph{como} en tama\~no.
+    rejilla del simulador (b) y la suma sobre los tri\'angulos reales
+    \textbf{densificados} (c), $g_{\mathrm{an}}$ reproduce la magnitud del
+    simulador y las CRB coinciden dentro de $\sim\!10\%$ en \textbf{ambos} ejes
+    ($\sigma_\rho$ \emph{y} $\sigma_\varphi$, Sec.~\ref{sec:resultados}). Los anchos
+    de suavizado se fijan a la discretizaci\'on del simulador ($\kappa=1/$p\'ixel,
+    $\tau=\Delta t/\sqrt{12}$), de modo que la comparaci\'on es ahora v\'alida
+    \emph{tanto} en forma \emph{como} en tama\~no.
 \end{itemize}
 
 \paragraph{5. Relaci\'on con la ruta FD.} La CRB-FD \emph{s\'i} usa el simulador
@@ -1322,25 +1342,25 @@ p\'ixeles dominados por el fondo, $y_q\ll b$). Resultado
 \toprule
 $\rho$ & $\varphi\,[^\circ]$ & $h$ & err $\partial/\partial\rho$ & err $\partial/\partial\varphi$ & err $\partial/\partial h$ \\
 \midrule
-0.50 &  30 & 1.00 & $9.8\times10^{-11}$ & $5.5\times10^{-10}$ & $3.9\times10^{-10}$ \\
-0.50 &  90 & 1.00 & $1.2\times10^{-10}$ & $8.1\times10^{-10}$ & $4.4\times10^{-10}$ \\
-0.50 & 150 & 1.00 & $1.3\times10^{-10}$ & $2.7\times10^{-10}$ & $5.8\times10^{-10}$ \\
-1.00 &  30 & 1.00 & $1.7\times10^{-10}$ & $9.0\times10^{-10}$ & $4.1\times10^{-10}$ \\
-1.00 &  90 & 1.00 & $2.2\times10^{-10}$ & $7.6\times10^{-10}$ & $5.9\times10^{-10}$ \\
-1.00 & 150 & 1.00 & $2.2\times10^{-10}$ & $8.1\times10^{-10}$ & $4.9\times10^{-10}$ \\
-1.50 &  30 & 1.00 & $2.7\times10^{-10}$ & $7.2\times10^{-10}$ & $7.0\times10^{-10}$ \\
-1.50 &  90 & 1.00 & $2.3\times10^{-10}$ & $9.2\times10^{-10}$ & $9.3\times10^{-10}$ \\
-1.50 & 150 & 1.00 & $4.2\times10^{-10}$ & $1.4\times10^{-9}$  & $8.6\times10^{-10}$ \\
+0.50 &  30 & 1.00 & $1.4\times10^{-10}$ & $3.8\times10^{-9}$  & $1.4\times10^{-9}$ \\
+0.50 &  90 & 1.00 & $1.5\times10^{-10}$ & $3.9\times10^{-10}$ & $7.1\times10^{-10}$ \\
+0.50 & 150 & 1.00 & $2.2\times10^{-10}$ & $5.5\times10^{-9}$  & $1.5\times10^{-9}$ \\
+1.00 &  30 & 1.00 & $1.6\times10^{-10}$ & $8.0\times10^{-10}$ & $8.2\times10^{-10}$ \\
+1.00 &  90 & 1.00 & $1.8\times10^{-10}$ & $5.1\times10^{-10}$ & $3.7\times10^{-10}$ \\
+1.00 & 150 & 1.00 & $1.7\times10^{-10}$ & $8.6\times10^{-10}$ & $6.0\times10^{-10}$ \\
+1.50 &  30 & 1.00 & $2.4\times10^{-10}$ & $2.1\times10^{-9}$  & $1.3\times10^{-9}$ \\
+1.50 &  90 & 1.00 & $2.5\times10^{-10}$ & $4.2\times10^{-10}$ & $2.6\times10^{-10}$ \\
+1.50 & 150 & 1.00 & $2.4\times10^{-10}$ & $1.9\times10^{-9}$  & $1.7\times10^{-9}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 \begin{equation*}
     \textbf{Error m\'aximo relativo (anal\'itico vs FD central):}\quad
-    1.4\times10^{-9}\ \ \ll\ \ 10^{-6}\ \ \Rightarrow\ \ \textbf{PASS}.
+    5.5\times10^{-9}\ \ \ll\ \ 10^{-6}\ \ \Rightarrow\ \ \textbf{PASS}.
 \end{equation*}
 Como CRB de referencia, en $(\rho,\varphi,h)=(1,90^\circ,1)$ se obtiene
-$\sigma_\rho\approx0.0050$\,m, $\sigma_\varphi\approx1.55^\circ$,
-$\sigma_h\approx0.013$\,m --- valores en \textbf{magnitud f\'isica}, del mismo
+$\sigma_\rho\approx0.0048$\,m, $\sigma_\varphi\approx1.55^\circ$,
+$\sigma_h\approx0.015$\,m --- valores en \textbf{magnitud f\'isica}, del mismo
 orden que el CRB-FD del rasterizador (cf.\ $\sigma_\rho^{\mathrm{FD}}\approx0.0042$\,m
 en el mismo punto, grid \emph{fixed\_h}).
 
@@ -1395,18 +1415,22 @@ comparaci\'on de \emph{forma} sigue siendo v\'alida aunque el forward anal\'itic
 se haya reescrito.
 \end{remark}
 
-\begin{remark}[Escalas ahora comparables]
-Con la variante (a)+(b)+(c) las \textbf{magnitudes absolutas} del CRB anal\'itico y
-del FD \textbf{s\'i} son directamente comparables: comparten amplitud f\'isica,
-rejilla del simulador y la malla real de la faceta. La superposici\'on a
-\emph{magnitud real} (Fig.~\ref{fig:avf-abs}) muestra las elipses anal\'iticas
-(verde) cayendo sobre las FD (rojo) en toda la rejilla, con
-$\sigma_\rho^{\mathrm{an}}/\sigma_\rho^{\mathrm{FD}}\in[0.86,1.05]$ y
-$\sigma_\varphi^{\mathrm{an}}/\sigma_\varphi^{\mathrm{FD}}\in[0.6,1.35]$
-(Tabla~\ref{tab:avf}). Se conserva adem\'as la superposici\'on \emph{normalizada en
-forma} (igualando la $\sigma_\rho$ mediana) como verificaci\'on de
-orientaci\'on/aspecto: al ser ya comparables en tama\~no, ambas curvas quedan casi
-indistinguibles.
+\begin{remark}[Escalas ahora comparables en ambos ejes]
+Con la variante (a)+(b)+(c) \textbf{densificada} las \textbf{magnitudes absolutas}
+del CRB anal\'itico y del FD \textbf{s\'i} son directamente comparables: comparten
+amplitud f\'isica, rejilla del simulador y la malla real densificada de la faceta.
+La superposici\'on a \emph{magnitud real} (Fig.~\ref{fig:avf-abs}) muestra las
+elipses anal\'iticas (verde) cayendo sobre las FD (rojo) en toda la rejilla, con
+$\sigma_\rho^{\mathrm{an}}/\sigma_\rho^{\mathrm{FD}}\in[1.00,1.09]$ y
+$\sigma_\varphi^{\mathrm{an}}/\sigma_\varphi^{\mathrm{FD}}\in[1.02,1.12]$
+(Tabla~\ref{tab:avf}) --- \textbf{ambos ejes} $\approx1{:}1$. Dos ingredientes lo
+consiguen: (i) \emph{densificar} la faceta ($T=512$; la suma sobre pocos
+tri\'angulos es una cuadratura de superficie demasiado gruesa) fija la escala
+global, y (ii) ligar los anchos de suavizado a la discretizaci\'on
+($\kappa=1/$p\'ixel fija $\sigma_\varphi$; $\tau=\Delta t/\sqrt{12}$ fija
+$\sigma_\rho$). Se conserva adem\'as la superposici\'on \emph{normalizada en forma}
+(igualando la $\sigma_\rho$ mediana): al ser ya comparables en tama\~no, ambas
+curvas quedan casi indistinguibles.
 \end{remark}
 
 \begin{figure}[ht]
@@ -1416,8 +1440,9 @@ indistinguibles.
 }{\textit{(Pendiente: ejecutar la comparaci\'on con la cache FD disponible.)}}
 \caption{(a) Superposici\'on anal\'itico (a)+(b)+(c) (verde) vs FD (rojo) a
 \emph{magnitud real}, \textbf{sin} normalizar: las elipses coinciden en toda la
-rejilla ($\sigma_\rho$ anal./FD $\in[0.86,1.05]$), lo que antes era imposible con
-la faceta puntual. Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
+rejilla en \textbf{ambos} ejes ($\sigma_\rho$ y $\sigma_\varphi$ anal./FD
+$\in[1.00,1.12]$), lo que antes era imposible con la faceta puntual. Archivo
+\texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
 \label{fig:avf-abs}
 \end{figure}
 
@@ -1448,10 +1473,12 @@ con la cache FD disponible.)}}
 Con la variante (a)+(b)+(c) la comparaci\'on ya no es solo de forma: es tambi\'en
 de \textbf{magnitud}.
 \begin{enumerate}[nosep]
-    \item \textbf{Magnitud comparable.} La amplitud f\'isica, la rejilla del
-    simulador y la suma sobre los tri\'angulos reales hacen que
-    $\sigma_\rho^{\mathrm{an}}\approx\sigma_\rho^{\mathrm{FD}}$ (raz\'on
-    $0.86$--$1.05$) en toda la rejilla; en el l\'imite duro
+    \item \textbf{Magnitud comparable en ambos ejes.} La amplitud f\'isica, la
+    rejilla del simulador y la suma sobre los tri\'angulos reales
+    \textbf{densificados} ($T=512$) hacen que
+    $\sigma_\rho^{\mathrm{an}}\approx\sigma_\rho^{\mathrm{FD}}$ \emph{y}
+    $\sigma_\varphi^{\mathrm{an}}\approx\sigma_\varphi^{\mathrm{FD}}$ (razones
+    $1.00$--$1.12$) en toda la rejilla; en el l\'imite duro
     ($\tau\to0,\kappa,\beta\to\infty$) ambos forwards coinciden y las Fisher
     convergen.
     \item \textbf{Suavidad / condicionamiento.} El forward anal\'itico tiene
@@ -1462,15 +1489,17 @@ de \textbf{magnitud}.
     condicionada}.
     \item \textbf{Forma / orientaci\'on.} Ambos dan elipses finas en \'angulo
     (resoluci\'on azimutal de la arista) y m\'as anchas en rango; el aspecto medio
-    coincide ($\approx8.4$ anal.\ vs $8.2$ FD) y la orientaci\'on es consistente.
-    \item \textbf{Salvedad residual.} La malla se usa cruda ($T=2$ tri\'angulos)
-    mientras el simulador densifica a $\sim\!5000$; la suma sobre $2$ centroides es
-    una cuadratura gruesa de la integral de superficie, suficiente para acercar la
-    magnitud pero no id\'entica. Persisten los anchos $\beta,\kappa,\tau$.
+    coincide ($\approx8.3$ anal.\ vs $8.2$ FD) y la orientaci\'on es consistente.
+    \item \textbf{Salvedad residual.} Persisten los anchos de suavizado finitos
+    $\beta,\kappa,\tau$ (se eligen ligados a la discretizaci\'on del simulador, no a
+    ojo) y una cuadratura de superficie \emph{ya convergida} ($T=512$; subir a
+    $2048$ cambia el CRB $<0.5\%$). No es un modelo id\'entico al rasterizador, pero
+    coincide con \'el dentro de $\sim\!10\%$ en ambos ejes.
 \end{enumerate}
-\textbf{Veredicto:} de todas las variantes, la (a)+(b)+(c) es la \textbf{m\'as
-fiel}: derivadas exactas, Fisher bien condicionada \textbf{y} magnitud comparable
-al rasterizador. El FD sigue siendo valioso como verificaci\'on independiente y
+\textbf{Veredicto:} de todas las variantes, la (a)+(b)+(c) densificada es la
+\textbf{m\'as fiel}: derivadas exactas, Fisher bien condicionada \textbf{y} magnitud
+comparable al rasterizador en ambos ejes. El FD sigue siendo valioso como
+verificaci\'on independiente y
 como el modelo de malla completo/densificado.
 
 %==============================================================================
@@ -1496,23 +1525,24 @@ diferenciabilidad), el Heaviside de la \texttt{xint} por una \textbf{sigmoide}
     \item la Fisher y el CRB \eqref{eq:fisher}--\eqref{eq:crb} conservan la
           estructura Poisson;
     \item la validaci\'on anal\'itico-vs-FD da error m\'aximo relativo
-          $\sim1.4\times10^{-9}$.
+          $\sim5.5\times10^{-9}$.
 \end{itemize}
 En la variante \textbf{(a)+(b)+(c)} a\~nadimos: \textbf{(a)} amplitud f\'isica
 ($I_{\mathrm{laser}}=1000$, \'area real del tri\'angulo, $4\pi^2 d_1^2 d_2^2$,
 $b=0.1$); \textbf{(b)} la rejilla del simulador ($64\times64$, FOV $0.25$, bin
 $3.9\times10^{-10}$); y \textbf{(c)} la suma sobre los tri\'angulos reales de
-\texttt{facet.obj} con \emph{placement} simb\'olico. Resultado: el CRB anal\'itico
-es \textbf{comparable en magnitud} con el FD ($\sigma_\rho$ anal./FD $0.86$--$1.05$
-en toda la rejilla) y la superposici\'on a magnitud real coincide sin normalizar.
-Salvedades: la malla se usa \textbf{cruda} ($T=2$ tri\'angulos vs $\sim\!5000$
-densificados en el simulador), de modo que la suma es una \textbf{cuadratura
-geom\'etrica gruesa} de la integral de superficie; la convenci\'on de altura es la
-del simulador (faceta de $z=0$ a $z=h$ tras la elevaci\'on $z_{\min}\!\to\!0$); la
-ventana de bins se congela alrededor del pulso (\texttt{freeze\_bins}); se asume
-$\nabla d_i\neq\vect0$ (Hip.~\ref{as:geom}) e $\matr{I}\succ0$; y los par\'ametros
-$(\beta,\kappa,\tau)$ recuperan el l\'imite duro cuando $\beta,\kappa\to\infty$,
-$\tau\to0$.
+\texttt{facet.obj} \textbf{densificado} ($T=512$) con \emph{placement} simb\'olico,
+y anchos de suavizado ligados a la discretizaci\'on ($\kappa=1/$p\'ixel$=256$,
+$\tau=\Delta t/\sqrt{12}$). Resultado: el CRB anal\'itico es \textbf{comparable en
+magnitud} con el FD en \textbf{ambos} ejes ($\sigma_\rho$ \emph{y} $\sigma_\varphi$
+anal./FD $1.00$--$1.12$ en toda la rejilla) y la superposici\'on a magnitud real
+coincide sin normalizar. Salvedades: la cuadratura de superficie es num\'erica pero
+\textbf{ya convergida} ($T=512$; subir a $2048$ mueve el CRB $<0.5\%$); la
+convenci\'on de altura es la del simulador (faceta de $z=0$ a $z=h$ tras la
+elevaci\'on $z_{\min}\!\to\!0$); la ventana de bins se congela alrededor del pulso
+(\texttt{freeze\_bins}); se asume $\nabla d_i\neq\vect0$ (Hip.~\ref{as:geom}) e
+$\matr{I}\succ0$; y los par\'ametros $(\beta,\kappa,\tau)$ recuperan el l\'imite
+duro cuando $\beta,\kappa\to\infty$, $\tau\to0$.
 
 %------------------------------------------------------------------------------
 \paragraph{Archivos.}
