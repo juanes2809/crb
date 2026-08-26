@@ -1,36 +1,46 @@
 Comparacion CRB analitico vs FD (rasterizado)  --  grid fixed_h [rho,phi]
 ======================================================================================================================
-NOTA: las magnitudes absolutas NO son comparables (modelos distintos: faceta
-puntual analitica, ganancia G=1e5, geometria fija; vs render de malla rasterizado).
-Lo comparable es la FORMA: relacion de aspecto (aspect = eje_mayor/eje_menor)
-y la inclinacion (tilt) de la elipse 3-sigma en el plano (rho, phi).
+NOTA: con la variante (a)+(b) la amplitud es fisica (I_laser=1000, area_eff=w*h)
+y la rejilla es la del simulador (64x64, bin real), de modo que las magnitudes
+absolutas SI son comparables: sigma_rho, sigma_phi quedan en la misma escala que
+el FD (faceta puntual vs render de malla). Ademas se compara la FORMA: relacion de
+aspecto (aspect = eje_mayor/eje_menor) y tilt de la elipse 3-sigma en (rho,phi).
 ======================================================================================================================
  rho  phi |  A:sig_rho A:sig_phi  A:sig_h  A:asp  A:tilt |  F:sig_rho F:sig_phi  F:sig_h  F:asp  F:tilt
 -------------------------------------------------------------------------------------------------------
-0.50   30 |   0.001306    0.4259      nan   6.85    95.6 |  0.0006859    0.5091      nan  19.21    93.3
-0.50   60 |   0.001184    0.2891      nan   4.50    94.3 |  0.0006779    0.4401      nan  14.03    93.0
-0.50   90 |    0.00139    0.2838      nan   3.64    93.4 |  0.0007805    0.3846      nan   9.61    93.0
-0.50  120 |   0.002027    0.2448      nan   2.13    93.6 |   0.001116    0.4116      nan   7.08    93.7
-0.50  150 |   0.003547    0.3478      nan   1.72    92.8 |   0.001847    0.5484      nan   5.70    94.6
-1.00   30 |   0.001382    0.5349      nan   9.84    96.1 |   0.003406     2.012      nan  13.06    93.4
-1.00   60 |   0.001201     0.374      nan   6.17    95.0 |   0.003448     1.478      nan   8.23    93.2
-1.00   90 |     0.0014    0.3807      nan   5.01    93.9 |   0.004197     1.416      nan   6.19    93.0
-1.00  120 |   0.001992    0.3231      nan   2.88    93.9 |   0.006299      1.46      nan   4.20    93.8
-1.00  150 |   0.003395     0.468      nan   2.43    93.4 |    0.01086     2.214      nan   3.70    94.4
-1.50   30 |   0.002255    0.8964      nan  10.86    96.3 |    0.01207     6.763      nan  12.10    93.4
-1.50   60 |   0.001918    0.6378      nan   6.76    95.1 |    0.01215     4.687      nan   7.23    93.1
-1.50   90 |   0.002228    0.6684      nan   5.59    93.8 |    0.01486     4.664      nan   5.66    92.7
-1.50  120 |    0.00315    0.5646      nan   3.19    93.5 |    0.02185     4.717      nan   3.84    93.0
-1.50  150 |   0.005356    0.8426      nan   2.77    92.9 |    0.03747     7.432      nan   3.51    92.8
+0.50   30 |  0.0005795    0.3799      nan  15.26    93.3 |  0.0006859    0.5091      nan  19.21    93.3
+0.50   60 |   0.000558    0.2838      nan  10.13    93.1 |  0.0006779    0.4401      nan  14.03    93.0
+0.50   90 |  0.0006579    0.2717      nan   7.75    92.9 |  0.0007805    0.3846      nan   9.61    93.0
+0.50  120 |  0.0009266    0.2364      nan   4.65    93.7 |   0.001116    0.4116      nan   7.08    93.7
+0.50  150 |   0.001541    0.3056      nan   3.58    94.3 |   0.001847    0.5484      nan   5.70    94.6
+1.00   30 |   0.002008     1.407      nan  17.83    93.4 |   0.003406     2.012      nan  13.06    93.4
+1.00   60 |   0.001912     1.078      nan  11.57    93.1 |   0.003448     1.478      nan   8.23    93.2
+1.00   90 |   0.002288     1.115      nan   9.25    92.7 |   0.004197     1.416      nan   6.19    93.0
+1.00  120 |   0.003268    0.9953      nan   5.52    92.9 |   0.006299      1.46      nan   4.20    93.8
+1.00  150 |   0.005424     1.379      nan   4.56    92.9 |    0.01086     2.214      nan   3.70    94.4
+1.50   30 |   0.008991     6.318      nan  18.20    93.4 |    0.01207     6.763      nan  12.10    93.4
+1.50   60 |   0.008545     4.875      nan  11.74    93.0 |    0.01215     4.687      nan   7.23    93.1
+1.50   90 |    0.01034     5.253      nan   9.64    92.5 |    0.01486     4.664      nan   5.66    92.7
+1.50  120 |      0.015     4.821      nan   5.79    92.5 |    0.02185     4.717      nan   3.84    93.0
+1.50  150 |    0.02504      6.95      nan   4.94    92.3 |    0.03747     7.432      nan   3.51    92.8
 -------------------------------------------------------------------------------------------------------
-Aspecto medio (mayor/menor)  analitico=4.96   FD=8.22
+Aspecto medio (mayor/menor)  analitico=9.36   FD=8.22
 
-CONCLUSION -- que elipse es 'mejor'
------------------------------------
-'Mejor' aqui = calidad/suavidad de la derivada y sensatez de la forma, NO la
-magnitud absoluta (las escalas no son comparables por ser modelos distintos).
+CONCLUSION -- magnitud y forma
+------------------------------
+Con la variante (a)+(b) el forward analitico usa la amplitud fisica del
+simulador (I_laser=1000, area_eff=w*h) y su misma rejilla (64x64, bin real),
+de modo que la CRB analitica y la FD quedan en la MISMA escala fisica.
 
-1) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS
+1) Magnitud: sigma_rho y sigma_phi analiticos caen en el mismo orden que el
+   FD (mismas unidades, misma normalizacion). El overlay a magnitud real
+   (crb_regions_analytic_vs_fd.png) muestra elipses de tamano comparable, a
+   diferencia de la version antigua con ganancia G=1e5 y rejilla 8x8 propia.
+   El pequeno residual proviene de la faceta puntual (area unica w*h en el
+   centroide z=h/2) frente al render de malla, y del suavizado finito; al
+   bajar tau, 1/beta, 1/kappa la CRB analitica converge hacia la FD.
+
+2) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS
    (sympy), C-infinito por construccion. El Jacobiano FD del rasterizador se
    calcula sobre un forward con escalones: la cuantizacion temporal ceil(.) y
    la mascara de ocultamiento xint>0 son constantes-a-trozos, de modo que la
@@ -38,16 +48,11 @@ magnitud absoluta (las escalas no son comparables por ser modelos distintos).
    introduciendo ruido de discretizacion y sensibilidad al paso delta. La
    elipse analitica es por tanto la mejor CONDICIONADA (Fisher mas estable).
 
-2) Forma/orientacion: ambos metodos producen elipses (burbujas) finas en
+3) Forma/orientacion: ambos metodos producen elipses (burbujas) finas en
    angulo -- la resolucion azimutal que aporta la arista ocluyente -- y mas
    anchas en rango, coherente con la fisica del borde. La orientacion
    (columna tilt) es consistente entre metodos salvo el ruido FD.
 
-3) Salvedad: el modelo analitico de faceta puntual NO reproduce el
-   rasterizador de malla; su CRB depende de G, beta, kappa, tau y de la
-   geometria fija. Por eso la comparacion honesta es de FORMA (overlay
-   shape-normalizado), no de tamano.
-
-VEREDICTO: para el proposito de un CRB diferenciable, la elipse ANALITICA es
-preferible por derivadas exactas y Fisher mejor condicionada; el FD sigue
-siendo util como verificacion independiente y como el modelo de malla completo.
+VEREDICTO: la elipse ANALITICA es ahora comparable en MAGNITUD con la FD y,
+por sus derivadas exactas, mejor condicionada; el FD sigue siendo util como
+verificacion independiente y como el modelo de malla completo.
