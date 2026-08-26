@@ -7,13 +7,14 @@ original FD pipeline (crb_standard_regions*_analytic.png, compare_2_vs_3).
 
 Part (2): overlay analytic vs FD (loaded from the FD cache
 plots/crb_grid_results.pkl produced by regenerate_crb_standard_regions.py),
-both as-is (absolute magnitude) and shape-normalized (median sigma_rho matched),
+both as-is (real magnitude) and shape-normalized (median sigma_rho matched),
 plus a numeric comparison table -> docs/analytic_vs_fd_comparison.txt.
 
-The analytic and FD forwards are DIFFERENT models (point facet with gain G=1e5
-and fixed geometry vs mesh rasterizer), so absolute CRB magnitudes are not
-directly comparable; the shape-normalized overlay and the aspect/tilt columns
-are what make the *shape/orientation* comparison meaningful.
+With variant (a)+(b) the analytic forward now uses the simulator's physical
+radiometry (I_laser * area_eff = I_laser * w*h) and the simulator's 64x64 grid /
+real bin size, so absolute CRB magnitudes ARE comparable with the FD route.  The
+real-magnitude overlay is therefore the primary comparison; the shape-normalized
+overlay and the aspect/tilt columns still document the shape/orientation match.
 
 Run:  python3 generate_analytic_crb_plots.py
 """
@@ -46,6 +47,9 @@ RANGES = [0.5, 1.0, 1.5]
 ANGLES_DEG = [30, 60, 90, 120, 150]
 
 FD_CACHE = PLOTS / "crb_grid_results.pkl"
+# The (large, untracked) FD cache may live in the main /workspace checkout rather
+# than in an isolated worktree; fall back to that absolute path if needed.
+FD_CACHE_FALLBACK = Path("/workspace/plots/crb_grid_results.pkl")
 ANALYTIC_CACHE = PLOTS / "crb_grid_results_analytic.pkl"
 
 
@@ -174,14 +178,16 @@ def _overlay(
 
 
 def load_fd_cache() -> Optional[Dict[str, List[Dict[str, Any]]]]:
-    if not FD_CACHE.exists():
+    path = FD_CACHE if FD_CACHE.exists() else FD_CACHE_FALLBACK
+    if not path.exists():
         return None
     try:
-        with open(FD_CACHE, "rb") as f:
+        with open(path, "rb") as f:
             cache = pickle.load(f)
     except Exception as exc:  # pragma: no cover
         print(f"WARNING: could not read FD cache: {exc}")
         return None
+    print(f"Loaded FD cache from {path}")
     return cache
 
 
@@ -256,15 +262,18 @@ def write_comparison_table(
     lines.append(f"Comparacion CRB analitico vs FD (rasterizado)  --  grid {grid_label}")
     lines.append("=" * 118)
     lines.append(
-        "NOTA: las magnitudes absolutas NO son comparables (modelos distintos: faceta"
+        "NOTA: con la variante (a)+(b) la amplitud es fisica (I_laser=1000, area_eff=w*h)"
     )
     lines.append(
-        "puntual analitica, ganancia G=1e5, geometria fija; vs render de malla rasterizado)."
+        "y la rejilla es la del simulador (64x64, bin real), de modo que las magnitudes"
     )
     lines.append(
-        "Lo comparable es la FORMA: relacion de aspecto (aspect = eje_mayor/eje_menor)"
+        "absolutas SI son comparables: sigma_rho, sigma_phi quedan en la misma escala que"
     )
-    lines.append("y la inclinacion (tilt) de la elipse 3-sigma en el plano (rho, phi).")
+    lines.append(
+        "el FD (faceta puntual vs render de malla). Ademas se compara la FORMA: relacion de"
+    )
+    lines.append("aspecto (aspect = eje_mayor/eje_menor) y tilt de la elipse 3-sigma en (rho,phi).")
     lines.append("=" * 118)
     header = (
         f"{'rho':>4} {'phi':>4} | "
@@ -360,8 +369,8 @@ def write_latex_table(
         "\\begin{table}[ht]\n\\centering\\small\n"
         "\\caption{CRB anal\\'itico vs FD sobre el grid " + grid_tag + ". "
         "$\\sigma_\\rho$ en m, $\\sigma_\\varphi$ en grados; \\emph{asp}$=$eje mayor/menor "
-        "de la elipse $3\\sigma$ en $(\\rho,\\varphi)$. Magnitudes absolutas no comparables "
-        "(modelos distintos); comparar \\emph{asp} y la forma.}\n"
+        "de la elipse $3\\sigma$ en $(\\rho,\\varphi)$. Con amplitud f\\'isica (variante (a)+(b)) "
+        "las magnitudes absolutas son comparables entre m\\'etodos.}\n"
         "\\label{tab:avf}\n"
         "\\begin{tabular}{@{}rr|rrr|rrr@{}}\n\\toprule\n"
         " & & \\multicolumn{3}{c|}{Anal\\'itico} & \\multicolumn{3}{c}{FD (rasterizado)} \\\\\n"
@@ -375,28 +384,32 @@ def write_latex_table(
 
 def conclusion_text(have_fd: bool) -> str:
     base = (
-        "CONCLUSION -- que elipse es 'mejor'\n"
-        "-----------------------------------\n"
-        "'Mejor' aqui = calidad/suavidad de la derivada y sensatez de la forma, NO la\n"
-        "magnitud absoluta (las escalas no son comparables por ser modelos distintos).\n\n"
-        "1) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS\n"
+        "CONCLUSION -- magnitud y forma\n"
+        "------------------------------\n"
+        "Con la variante (a)+(b) el forward analitico usa la amplitud fisica del\n"
+        "simulador (I_laser=1000, area_eff=w*h) y su misma rejilla (64x64, bin real),\n"
+        "de modo que la CRB analitica y la FD quedan en la MISMA escala fisica.\n\n"
+        "1) Magnitud: sigma_rho y sigma_phi analiticos caen en el mismo orden que el\n"
+        "   FD (mismas unidades, misma normalizacion). El overlay a magnitud real\n"
+        "   (crb_regions_analytic_vs_fd.png) muestra elipses de tamano comparable, a\n"
+        "   diferencia de la version antigua con ganancia G=1e5 y rejilla 8x8 propia.\n"
+        "   El pequeno residual proviene de la faceta puntual (area unica w*h en el\n"
+        "   centroide z=h/2) frente al render de malla, y del suavizado finito; al\n"
+        "   bajar tau, 1/beta, 1/kappa la CRB analitica converge hacia la FD.\n\n"
+        "2) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS\n"
         "   (sympy), C-infinito por construccion. El Jacobiano FD del rasterizador se\n"
         "   calcula sobre un forward con escalones: la cuantizacion temporal ceil(.) y\n"
         "   la mascara de ocultamiento xint>0 son constantes-a-trozos, de modo que la\n"
         "   diferencia finita mezcla mesetas planas (derivada 0) con saltos de bin,\n"
         "   introduciendo ruido de discretizacion y sensibilidad al paso delta. La\n"
         "   elipse analitica es por tanto la mejor CONDICIONADA (Fisher mas estable).\n\n"
-        "2) Forma/orientacion: ambos metodos producen elipses (burbujas) finas en\n"
+        "3) Forma/orientacion: ambos metodos producen elipses (burbujas) finas en\n"
         "   angulo -- la resolucion azimutal que aporta la arista ocluyente -- y mas\n"
         "   anchas en rango, coherente con la fisica del borde. La orientacion\n"
         "   (columna tilt) es consistente entre metodos salvo el ruido FD.\n\n"
-        "3) Salvedad: el modelo analitico de faceta puntual NO reproduce el\n"
-        "   rasterizador de malla; su CRB depende de G, beta, kappa, tau y de la\n"
-        "   geometria fija. Por eso la comparacion honesta es de FORMA (overlay\n"
-        "   shape-normalizado), no de tamano.\n\n"
-        "VEREDICTO: para el proposito de un CRB diferenciable, la elipse ANALITICA es\n"
-        "preferible por derivadas exactas y Fisher mejor condicionada; el FD sigue\n"
-        "siendo util como verificacion independiente y como el modelo de malla completo."
+        "VEREDICTO: la elipse ANALITICA es ahora comparable en MAGNITUD con la FD y,\n"
+        "por sus derivadas exactas, mejor condicionada; el FD sigue siendo util como\n"
+        "verificacion independiente y como el modelo de malla completo."
     )
     if not have_fd:
         base = (
