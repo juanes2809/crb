@@ -1,42 +1,48 @@
 Comparacion CRB analitico vs FD (rasterizado)  --  grid fixed_h [rho,phi]
 ======================================================================================================================
 NOTA: variante (a)+(b)+(c) -- amplitud fisica + rejilla del simulador (64x64,
-FOV 0.25, bin 3.9e-10) + SUMA sobre los triangulos reales de facet.obj con el
-placement simbolico del simulador. Las magnitudes ABSOLUTAS ya son comparables:
-sig_rho analitico/FD ~ 0.9-1.05 en toda la rejilla. Tambien se reporta la FORMA:
-aspect = eje_mayor/eje_menor y el tilt de la elipse 3-sigma en (rho, phi).
+FOV 0.25, bin 3.9e-10) + SUMA sobre los triangulos reales de facet.obj DENSIFICADO
+(512 triangulos) con placement simbolico, y anchos de suavizado ligados a la
+discretizacion del simulador (kappa=256=1/pixel; tau=bin/sqrt(12)). Resultado:
+sig_rho Y sig_phi analitico/FD ~ 1.0-1.11 en TODA la rejilla (ambas ~1:1). Tambien
+se reporta la FORMA: aspect = eje_mayor/eje_menor y el tilt de la elipse 3-sigma.
 ======================================================================================================================
  rho  phi |  A:sig_rho A:sig_phi  A:sig_h  A:asp  A:tilt |  F:sig_rho F:sig_phi  F:sig_h  F:asp  F:tilt
 -------------------------------------------------------------------------------------------------------
-0.50   30 |  0.0006393    0.4266      nan  15.59    93.3 |  0.0006859    0.5091      nan  19.21    93.3
-0.50   60 |  0.0006529    0.3232      nan   9.99    93.3 |  0.0006779    0.4401      nan  14.03    93.0
-0.50   90 |  0.0007938    0.3129      nan   7.56    93.5 |  0.0007805    0.3846      nan   9.61    93.0
-0.50  120 |    0.00114    0.3013      nan   4.93    94.4 |   0.001116    0.4116      nan   7.08    93.7
-0.50  150 |   0.001942    0.3287      nan   3.10    96.0 |   0.001847    0.5484      nan   5.70    94.6
-1.00   30 |   0.003188     1.954      nan  14.96    93.7 |   0.003406     2.012      nan  13.06    93.4
-1.00   60 |   0.003246     1.522      nan   9.88    93.9 |   0.003448     1.478      nan   8.23    93.2
-1.00   90 |    0.00392     1.491      nan   7.47    94.0 |   0.004197     1.416      nan   6.19    93.0
-1.00  120 |   0.005578     1.365      nan   4.64    95.3 |   0.006299      1.46      nan   4.20    93.8
-1.00  150 |   0.009372     1.929      nan   3.92    96.3 |    0.01086     2.214      nan   3.70    94.4
-1.50   30 |    0.01242     7.964      nan  16.14    93.7 |    0.01207     6.763      nan  12.10    93.4
-1.50   60 |     0.0122     6.175      nan  10.56    93.5 |    0.01215     4.687      nan   7.23    93.1
-1.50   90 |    0.01475     6.298      nan   8.22    93.2 |    0.01486     4.664      nan   5.66    92.7
-1.50  120 |    0.02132     5.723      nan   4.94    93.9 |    0.02185     4.717      nan   3.84    93.0
-1.50  150 |    0.03592     8.566      nan   4.37    94.2 |    0.03747     7.432      nan   3.51    92.8
+0.50   30 |  0.0007502     0.551      nan  19.07    93.3 |  0.0006859    0.5091      nan  19.21    93.3
+0.50   60 |  0.0007458    0.4741      nan  13.83    93.1 |  0.0006779    0.4401      nan  14.03    93.0
+0.50   90 |  0.0008592    0.4125      nan   9.43    93.1 |  0.0007805    0.3846      nan   9.61    93.0
+0.50  120 |   0.001223    0.4394      nan   6.95    93.9 |   0.001116    0.4116      nan   7.08    93.7
+0.50  150 |   0.002039    0.5878      nan   5.59    95.0 |   0.001847    0.5484      nan   5.70    94.6
+1.00   30 |   0.003699     2.229      nan  13.58    93.4 |   0.003406     2.012      nan  13.06    93.4
+1.00   60 |   0.003722     1.599      nan   8.32    93.3 |   0.003448     1.478      nan   8.23    93.2
+1.00   90 |   0.004541     1.539      nan   6.26    93.2 |   0.004197     1.416      nan   6.19    93.0
+1.00  120 |    0.00679     1.564      nan   4.20    94.1 |   0.006299      1.46      nan   4.20    93.8
+1.00  150 |    0.01173     2.348      nan   3.65    94.7 |    0.01086     2.214      nan   3.70    94.4
+1.50   30 |    0.01315     7.566      nan  12.59    93.4 |    0.01207     6.763      nan  12.10    93.4
+1.50   60 |    0.01317     5.179      nan   7.41    93.1 |    0.01215     4.687      nan   7.23    93.1
+1.50   90 |    0.01618     5.188      nan   5.82    92.8 |    0.01486     4.664      nan   5.66    92.7
+1.50  120 |    0.02396     5.167      nan   3.85    93.3 |    0.02185     4.717      nan   3.84    93.0
+1.50  150 |    0.04085     8.015      nan   3.49    93.2 |    0.03747     7.432      nan   3.51    92.8
 -------------------------------------------------------------------------------------------------------
-Aspecto medio (mayor/menor)  analitico=8.42   FD=8.22
+Aspecto medio (mayor/menor)  analitico=8.27   FD=8.22
 
-CONCLUSION -- variante (a)+(b)+(c), la mas fiel
-----------------------------------------------
+CONCLUSION -- variante (a)+(b)+(c) densificada, la mas fiel
+----------------------------------------------------------
 Esta variante combina amplitud fisica (a), la rejilla del simulador (b) y la
-SUMA sobre los triangulos reales de facet.obj con placement simbolico (c). Es
-el forward diferenciable mas parecido a la funcion del simulador, y por eso
-las CRB son comparables EN MAGNITUD, no solo en forma.
+SUMA sobre los triangulos reales de facet.obj DENSIFICADO (512) con placement
+simbolico (c). Es el forward diferenciable mas parecido a la funcion del
+simulador, y por eso las CRB son comparables EN MAGNITUD, no solo en forma.
 
-1) Magnitud comparable: sig_rho analitico/FD ~ 0.9-1.05 en toda la rejilla y
-   sig_phi dentro de ~0.6-1.35. El overlay a magnitud real (no normalizado) ya
-   cae sobre las elipses FD. En el limite duro (beta,kappa -> inf, tau -> 0) el
-   forward suave converge al del simulador, de modo que las Fisher coinciden.
+1) Magnitud comparable en AMBOS ejes: sig_rho Y sig_phi analitico/FD ~ 1.0-1.11
+   en toda la rejilla. El overlay a magnitud real (no normalizado) cae sobre las
+   elipses FD. Dos ingredientes lo logran: (i) DENSIFICAR la faceta (la suma
+   sobre pocos triangulos es una cuadratura de superficie demasiado gruesa; con
+   ~128-512 triangulos converge) y (ii) ligar los anchos de suavizado a la
+   discretizacion del simulador: kappa=1/pixel (penumbra=1 pixel) fija sig_phi,
+   tau=bin/sqrt(12) (misma varianza que el top-hat del ceil) fija sig_rho.
+   En el limite duro (beta,kappa -> inf, tau -> 0) el forward suave converge al
+   del simulador, de modo que las Fisher coinciden.
 
 2) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS
    (sympy), C-infinito por construccion. El Jacobiano FD del rasterizador se
@@ -48,13 +54,9 @@ las CRB son comparables EN MAGNITUD, no solo en forma.
 
 3) Forma/orientacion: ambos metodos producen elipses (burbujas) finas en
    angulo -- la resolucion azimutal que aporta la arista ocluyente -- y mas
-   anchas en rango, coherente con la fisica del borde. La orientacion
-   (columna tilt) es consistente entre metodos.
+   anchas en rango, coherente con la fisica del borde. El aspecto medio coincide
+   (~8.3 vs 8.2) y la orientacion (tilt) es consistente entre metodos.
 
-4) Salvedad: se usa el mesh CRUDO (sin densificar) de facet.obj (2 triangulos),
-   mientras el simulador densifica a ~5000; la suma sobre 2 centroides es una
-   cuadratura gruesa de la integral de superficie, suficiente para acercar la
-   magnitud pero no identica. Persisten los anchos de suavizado beta,kappa,tau.
-
-VEREDICTO: para un CRB diferenciable, la variante (a)+(b)+(c) es la mejor: derivadas
-exactas, Fisher bien condicionada Y magnitud comparable al rasterizador.
+VEREDICTO: la variante (a)+(b)+(c) densificada es la mas fiel de todas: derivadas
+exactas, Fisher bien condicionada Y magnitud comparable al rasterizador en
+ambos ejes (sig_rho y sig_phi).
