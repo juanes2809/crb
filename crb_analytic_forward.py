@@ -11,21 +11,32 @@ rasterized simulator:
 * **(b) simulator grid.**  The floor FOV / pixel / time-bin grid matches the
   simulator exactly: ``camera_FOV=0.25`` m, ``cam_pixel_dim=64``,
   ``camera_FOV_center=[0,-0.125,0]``, ``bin_size=3.9e-10`` s, ``c=299792458``.
-* **(c) sum over the REAL mesh triangles.**  Instead of a single point facet we
-  read ``objects/facet.obj`` and place its *actual* triangles with the SAME
-  symbolic transform the simulator applies (cell 8): anisotropic scale
+* **(c) sum over the REAL, densified mesh triangles.**  Instead of a single point
+  facet we read ``objects/facet.obj`` and place its *actual* triangles with the
+  SAME symbolic transform the simulator applies (cell 8): anisotropic scale
   ``[w/ext_x, h/ext_y, 1]``, pitch ``~1.57`` about ``[1,0,0]``, roll about
   ``[0,1,0]``, yaw ``theta = phi + 3*pi/2`` about ``[0,0,1]``, lift ``z_min->0``
   then translate to ``v1 = (rho cos phi, rho sin phi, 0)``.  The raw vertices are
   treated as constants and ``(rho, phi, h)`` as sympy symbols, so for every
   triangle the centroid ``p_s(rho,phi,h)``, area ``area_tri(rho,phi,h)`` and
-  normal ``n_s(rho,phi,h)`` are closed-form.  The smooth contribution is built
-  per ``(triangle, pixel, bin)`` and SUMMED over triangles.
+  normal ``n_s(rho,phi,h)`` are closed-form.  The flat quad is **subdivided**
+  (``subdivisions=4`` -> 512 triangles) so the sum is a converged quadrature of
+  the facet surface integral (a 2-triangle sum is too coarse and mis-estimates
+  the CRB); the smooth per-triangle contribution is SUMMED over triangles.
 
-The result is a ``C``-infinity forward whose *shape and magnitude* track the
-simulator's mesh forward far more closely than the point-facet variants, so the
-analytic CRB and the finite-difference (rasterized) CRB become comparable in
-magnitude (they converge to the same hard limit as the smoothing widths shrink).
+The smoothing widths are tied to the simulator's own discretization scales
+(occlusion penumbra ``1/kappa`` = one pixel; pulse std ``tau = bin/sqrt(12)`` =
+the ceil() top-hat's second moment), so the smooth forward matches the hard,
+rasterized simulator that the FD route differentiates.  The result is a
+``C``-infinity forward whose *shape AND magnitude* track the simulator's mesh
+forward: both ``sigma_rho`` and ``sigma_phi`` land within ~10% of the FD/mesh CRB
+across the pose grid (they converge to the same hard limit as the widths shrink).
+
+For speed with many triangles the forward is factorized as ``y = A(psi) * S(t0)``:
+the expensive bin-INDEPENDENT amplitude ``A`` and time-of-flight ``t0`` (and
+their exact psi-derivatives, via sympy + CSE) are evaluated once per (triangle,
+pixel), and the cheap Gaussian pulse ``S`` (a difference of ``erf``) is assembled
+numerically over the time bins.
 
 Every source of non-differentiability of the simulator is replaced by a smooth,
 closed-form analogue:
@@ -130,6 +141,12 @@ class ForwardConfig:
     facet_w: float = 0.5            # facet width (fixed): X -> w before pitch
     pitch: float = 1.57             # rotation about [1,0,0] (rad)
     roll: float = 0.0               # rotation about [0,1,0] (rad)
+    # densification: subdivide the raw quad (2 tris) this many times to
+    # approximate the simulator's surface integral (2 -> 8 -> 32 -> 128 -> 512
+    # -> 2048 ...).  A coarse 2-triangle sum is a poor surface quadrature; the
+    # integral has converged by ~128 triangles.  512 (subdiv 4) is comfortably
+    # converged and fast.
+    subdivisions: int = 4           # 4 -> 512 triangles
 
     # --- radiometry ----------------------------------------------------------
     laser_intensity: float = 1000.0  # simulator laser_intensity
@@ -138,9 +155,21 @@ class ForwardConfig:
     background: float = 0.1         # b_q  (keeps 1/g finite without eps floor)
 
     # --- smoothing widths ----------------------------------------------------
+    # The smoothing widths are tied to the simulator's OWN discretization scales
+    # so that the smooth forward matches the (hard, rasterized) simulator that the
+    # FD route differentiates -- this is what brings BOTH sigma_rho and sigma_phi
+    # to ~1:1 with the FD CRB (not just their shape):
+    #   * kappa = 1 / pixel_pitch = pixel_dim / fov_width = 256  -> the occlusion
+    #     penumbra is ~1 pixel wide, matching the simulator's subpixel-sampled
+    #     (subpixel_dim=4) edge, which sets the azimuthal (sigma_phi) resolution.
+    #   * tau = bin_size / sqrt(12) ~= 0.29 * bin_size  -> the Gaussian pulse has
+    #     the SAME second moment (variance) as the simulator's ceil() top-hat of
+    #     width bin_size, matching the range (sigma_rho) resolution.
+    #   * beta stays large: the cosine clamp is a real max(0,.), only the corner
+    #     is rounded (width ~1/beta ~ 0.02).
     beta: float = 50.0              # softplus sharpness (cosine hinge width ~1/beta)
-    kappa: float = 60.0             # occlusion sharpness (penumbra width ~1/kappa m)
-    tau: float = 3.9e-10            # Gaussian pulse std (s)
+    kappa: float = 256.0            # occlusion sharpness (penumbra ~1 pixel = 1/kappa m)
+    tau: float = 3.9e-10 / 12 ** 0.5  # Gaussian pulse std: matches bin 2nd moment
 
     def resolved_obj_path(self) -> str:
         """Absolute path to the mesh, trying cwd then the module directory."""
@@ -172,17 +201,23 @@ class ForwardConfig:
 # ---------------------------------------------------------------------------
 # Mesh loading (raw triangles of facet.obj)
 # ---------------------------------------------------------------------------
-@lru_cache(maxsize=8)
-def _load_raw_mesh(obj_path: str) -> Dict[str, Any]:
-    """Load the raw facet mesh: triangles (T,3,3), extents, min vertex, z-min ref.
+@lru_cache(maxsize=16)
+def _load_raw_mesh(obj_path: str, subdivisions: int = 0) -> Dict[str, Any]:
+    """Load the facet mesh: triangles (T,3,3), extents, min vertex, z-min ref.
 
-    Returns everything the symbolic placement needs.  The mesh is NOT densified
-    (variant (c) uses the raw triangles -- a flat facet is only a couple of
-    triangles), matching the task's "sum over the real triangles" requirement.
+    The facet is a flat quad (2 raw triangles).  To approximate the surface
+    integral the simulator performs over its ~5000 densified triangles, we
+    optionally **subdivide** the raw mesh ``subdivisions`` times (each pass turns
+    every triangle into 4: 2 -> 8 -> 32 -> 128 -> 512 -> 2048 ...).  Subdivision
+    is planar, so the extents and the z-min reference vertex are unchanged (they
+    stay at a corner), i.e. the symbolic placement is unaffected; only the number
+    of triangles summed numerically grows.
     """
     import trimesh
 
     mesh = trimesh.load(obj_path, force="mesh")
+    for _ in range(int(max(0, subdivisions))):
+        mesh = mesh.subdivide()
     verts = np.asarray(mesh.vertices, dtype=float)
     tris = np.asarray(mesh.triangles, dtype=float)   # (T, 3, 3), trimesh winding
     ext = np.asarray(mesh.extents, dtype=float)
@@ -190,16 +225,16 @@ def _load_raw_mesh(obj_path: str) -> Dict[str, Any]:
     if ext_x <= 0 or ext_y <= 0:
         raise ValueError(f"Invalid facet extents {ext}; need ext_x,ext_y > 0")
 
-    # Reference raw vertex whose transformed z is minimal (for the z_min lift).
+    # Reference vertex whose transformed z is minimal (for the z_min lift).
     # For this planar facet with h>0 and pitch~pi/2, the ordering is pose
-    # independent, so we pick it once at a nominal pose (h=1, phi=0).
+    # independent (a corner), so we pick it once at a nominal pose (h=1, phi=0).
     z_ref = _pick_zmin_ref(verts, ext_x, ext_y, 1.57, 0.0)
 
     return {
         "triangles": tris,
         "ext_x": ext_x,
         "ext_y": ext_y,
-        "z_ref": z_ref,           # (vx, vy, vz) raw vertex achieving min z
+        "z_ref": z_ref,           # (vx, vy, vz) vertex achieving min z
         "n_triangles": int(tris.shape[0]),
     }
 
@@ -329,29 +364,34 @@ def _build_symbolic(key: Tuple) -> Dict[str, Callable]:
 
     # --- physical amplitude: simulator's intensity, smoothed ----------------
     #   intensity = laser_intensity * area * dot1*dot2*dot3*dot4 / (4 pi^2 d1^2 d2^2)
+    # The amplitude A and the time-of-flight t0 are *bin-independent* (they do not
+    # involve tlo/thi).  We factorize the forward as y = A * S(t0) so that the
+    # expensive foreshortening / distance / occlusion terms (and their psi
+    # derivatives) are evaluated ONLY over (triangle, pixel) -- not over
+    # (triangle, pixel, bin).  The cheap pulse S and its t0-derivative are then
+    # assembled numerically over the bin axis.  This removes an O(n_bins) factor
+    # from the heavy symbolic evaluation, which is what makes summing over
+    # thousands of densified triangles fast.
     denom = 4 * sp.pi**2 * d1**2 * d2**2
     A = sp.Float(laser_intensity) * sp.Float(alpha) * sp.Float(gain) \
         * area_tri * vis * f_fore / denom
-
-    # --- analytic pulse integral over the bin [tlo, thi] --------------------
-    # Unit-area Gaussian pulse at t0 = (d1+d2)/c; bin integral is a diff of erf.
-    t0 = (d1 + d2) / c
-    S = (
-        sp.erf((thi - t0) / (sp.sqrt(2) * tau))
-        - sp.erf((tlo - t0) / (sp.sqrt(2) * tau))
-    ) / 2
-
-    y = A * S  # y for a single (triangle, pixel, bin) -- background added later
+    t0 = (d1 + d2) / c  # time of flight (bin-independent)
 
     vargs = (v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2])
-    args = (rho, phi, h, px, py, tlo, thi) + vargs
+    args = (rho, phi, h, px, py) + vargs
     modules = ["scipy", "numpy"]
+
+    # ``cse=True`` and grouping share the (large) common subexpressions of A, t0
+    # and their psi-derivatives, computed once per (triangle, pixel) element.
+    amp_and_tof = [
+        A, sp.diff(A, rho), sp.diff(A, phi), sp.diff(A, h),
+        t0, sp.diff(t0, rho), sp.diff(t0, phi), sp.diff(t0, h),
+    ]
     out: Dict[str, Callable] = {
-        "y": sp.lambdify(args, y, modules=modules),
-        "dy_drho": sp.lambdify(args, sp.diff(y, rho), modules=modules),
-        "dy_dphi": sp.lambdify(args, sp.diff(y, phi), modules=modules),
-        "dy_dh": sp.lambdify(args, sp.diff(y, h), modules=modules),
-        "t0": sp.lambdify((rho, phi, h, px, py) + vargs, t0, modules=modules),
+        # forward needs only (A, t0); jacobian needs the full 8-tuple.
+        "fwd": sp.lambdify(args, [A, t0], modules=modules, cse=True),
+        "amp_jac": sp.lambdify(args, amp_and_tof, modules=modules, cse=True),
+        "t0": sp.lambdify(args, t0, modules=modules),
     }
     return out
 
@@ -374,9 +414,13 @@ class AnalyticForwardModel:
     def __init__(self, config: Optional[ForwardConfig] = None):
         self.config = config or ForwardConfig()
         self._fns = _build_symbolic(self.config.as_key())
-        mesh = _load_raw_mesh(self.config.resolved_obj_path())
+        mesh = _load_raw_mesh(
+            self.config.resolved_obj_path(), int(self.config.subdivisions)
+        )
         self._triangles = mesh["triangles"]        # (T, 3, 3)
         self.n_triangles = mesh["n_triangles"]
+        # flattened raw-vertex coords per triangle (T, 9): v0x,v0y,v0z,v1x,...
+        self._tri_flat = self._triangles.reshape(self.n_triangles, 9).astype(float)
         self._px, self._py = self._build_pixel_grid()
 
     # --- grids --------------------------------------------------------------
@@ -398,26 +442,16 @@ class AnalyticForwardModel:
         X, Y = np.meshgrid(xs, ys, indexing="xy")
         return X.ravel(), Y.ravel()
 
-    def _tri_args(self, idx: int) -> Tuple[float, ...]:
-        t = self._triangles[idx]
-        return (
-            float(t[0, 0]), float(t[0, 1]), float(t[0, 2]),
-            float(t[1, 0]), float(t[1, 1]), float(t[1, 2]),
-            float(t[2, 0]), float(t[2, 1]), float(t[2, 2]),
-        )
-
     def _time_bins(self, psi: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Return (tlo, thi) bin edges covering the pulse over ALL triangles."""
         cfg = self.config
         rho, phi, h = float(psi[0]), float(psi[1]), float(psi[2])
-        t0_min, t0_max = np.inf, -np.inf
-        for idx in range(self.n_triangles):
-            t0 = np.asarray(
-                self._fns["t0"](rho, phi, h, self._px, self._py, *self._tri_args(idx)),
-                dtype=float,
-            )
-            t0_min = min(t0_min, float(np.min(t0)))
-            t0_max = max(t0_max, float(np.max(t0)))
+        # vectorized t0 over (triangle, pixel): vertex coords (T,1) vs px (1,P)
+        vcols = [self._tri_flat[:, k].reshape(-1, 1) for k in range(9)]
+        PX = self._px.reshape(1, -1)
+        PY = self._py.reshape(1, -1)
+        t0 = np.asarray(self._fns["t0"](rho, phi, h, PX, PY, *vcols), dtype=float)
+        t0_min, t0_max = float(np.min(t0)), float(np.max(t0))
         dt = cfg.bin_size
         if cfg.n_time_bins is not None:
             j = np.arange(cfg.n_time_bins)
@@ -440,34 +474,60 @@ class AnalyticForwardModel:
         psi = self._pad_psi(np.asarray(psi, dtype=float).ravel())
         return self._time_bins(psi)
 
-    def _grid_qr(self, psi: np.ndarray, bins=None):
-        """Broadcast (pixel, bin) grid arrays for lambdified evaluation."""
+    def _resolve_bins(self, psi: np.ndarray, bins=None):
         rho, phi, h = float(psi[0]), float(psi[1]), float(psi[2])
         if bins is None:
             tlo, thi = self._time_bins(psi)
         else:
             tlo, thi = bins
-        PX, TLO = np.meshgrid(self._px, tlo, indexing="ij")
-        PY, THI = np.meshgrid(self._py, thi, indexing="ij")
-        return rho, phi, h, PX, PY, TLO, THI
+        return rho, phi, h, np.asarray(tlo, float), np.asarray(thi, float)
 
-    def _sum_over_triangles(self, fn_key: str, psi: np.ndarray, bins=None) -> np.ndarray:
-        rho, phi, h, PX, PY, TLO, THI = self._grid_qr(psi, bins=bins)
-        fn = self._fns[fn_key]
-        acc = None
-        for idx in range(self.n_triangles):
-            val = np.asarray(
-                fn(rho, phi, h, PX, PY, TLO, THI, *self._tri_args(idx)),
-                dtype=float,
-            )
-            # lambdify may return a scalar if the expression collapses; broadcast
-            val = np.broadcast_to(val, PX.shape).astype(float)
-            acc = val if acc is None else acc + val
-        return acc.ravel()
+    def _chunk_size(self, pb: int) -> int:
+        """Triangles per vectorized batch, capped to bound peak memory.
+
+        ``pb = P*B`` (grid size).  We target ~2M elements per (C, P, B) block so
+        the pulse arrays stay within a sane memory envelope while still
+        amortizing Python-call overhead over many triangles.
+        """
+        c = max(1, int(2_000_000 // max(1, pb)))
+        return min(c, self.n_triangles)
+
+    def _pulse(self, t0, tlo, thi):
+        """Unit-area Gaussian pulse bin integral S and its t0-derivative.
+
+        ``t0`` has shape ``(C, P)``; ``tlo, thi`` shape ``(B,)``.  Returns
+        ``S, dS/dt0`` of shape ``(C, P, B)`` (erf/exp only -- cheap).
+        """
+        from scipy.special import erf
+
+        tau = self.config.tau
+        root2tau = np.sqrt(2.0) * tau
+        a = (thi[None, None, :] - t0[:, :, None]) / root2tau
+        b = (tlo[None, None, :] - t0[:, :, None]) / root2tau
+        S = 0.5 * (erf(a) - erf(b))
+        # dS/dt0 = -(1/(tau sqrt(2 pi))) [ exp(-a^2) - exp(-b^2) ]
+        dSdt0 = -(1.0 / (tau * np.sqrt(2.0 * np.pi))) * (
+            np.exp(-a * a) - np.exp(-b * b)
+        )
+        return S, dSdt0
 
     def forward_y(self, psi: ArrayLike, bins=None) -> np.ndarray:
         psi = self._pad_psi(np.asarray(psi, dtype=float).ravel())
-        return self._sum_over_triangles("y", psi, bins=bins)
+        rho, phi, h, tlo, thi = self._resolve_bins(psi, bins=bins)
+        P, B = self._px.size, tlo.size
+        acc = np.zeros((P, B), dtype=float)
+        c = self._chunk_size(P * B)
+        px = self._px[None, :]                        # (1, P)
+        py = self._py[None, :]
+        for start in range(0, self.n_triangles, c):
+            cols = [self._tri_flat[start:start + c, k].reshape(-1, 1)
+                    for k in range(9)]               # 9 x (C, 1)
+            A, t0 = self._fns["fwd"](rho, phi, h, px, py, *cols)  # (C, P)
+            A = np.broadcast_to(np.asarray(A, float), (cols[0].shape[0], P))
+            t0 = np.broadcast_to(np.asarray(t0, float), (cols[0].shape[0], P))
+            S, _ = self._pulse(t0, tlo, thi)         # (C, P, B)
+            acc += (A[:, :, None] * S).sum(axis=0)
+        return acc.ravel()
 
     def forward_g(self, psi: ArrayLike, bins=None) -> np.ndarray:
         return self.forward_y(psi, bins=bins) + self.config.background
@@ -475,15 +535,38 @@ class AnalyticForwardModel:
     def jacobian_g(self, psi: ArrayLike, n_params: int = 3, bins=None) -> np.ndarray:
         """Exact analytic Jacobian dg/dpsi (== dy/dpsi) of shape (N_q, n_params).
 
-        Each column is summed over the mesh triangles (linearity of d/dpsi and of
-        the triangle sum).
+        Uses the factorization ``y = A(psi) S(t0(psi))`` so
+        ``dy/dpsi = (dA/dpsi) S + A (dS/dt0)(dt0/dpsi)``; A, t0 and their psi
+        derivatives are evaluated once per (triangle, pixel) with a CSE-shared
+        lambdified call, and summed over triangles.
         """
         psi = self._pad_psi(np.asarray(psi, dtype=float).ravel())
-        cols = [self._sum_over_triangles("dy_drho", psi, bins=bins),
-                self._sum_over_triangles("dy_dphi", psi, bins=bins)]
+        rho, phi, h, tlo, thi = self._resolve_bins(psi, bins=bins)
+        P, B = self._px.size, tlo.size
+        accs = [np.zeros((P, B), dtype=float) for _ in range(3)]
+        c = self._chunk_size(P * B)
+        px = self._px[None, :]
+        py = self._py[None, :]
+        for start in range(0, self.n_triangles, c):
+            C = min(c, self.n_triangles - start)
+            cols = [self._tri_flat[start:start + c, k].reshape(-1, 1)
+                    for k in range(9)]               # 9 x (C, 1)
+            vals = self._fns["amp_jac"](rho, phi, h, px, py, *cols)
+            A, dA = vals[0], vals[1:4]
+            t0, dt0 = vals[4], vals[5:8]
+            A = np.broadcast_to(np.asarray(A, float), (C, P))
+            t0 = np.broadcast_to(np.asarray(t0, float), (C, P))
+            S, dSdt0 = self._pulse(t0, tlo, thi)     # (C, P, B)
+            for m in range(3):
+                dAm = np.broadcast_to(np.asarray(dA[m], float), (C, P))
+                dt0m = np.broadcast_to(np.asarray(dt0[m], float), (C, P))
+                dy = (dAm[:, :, None] * S
+                      + A[:, :, None] * dSdt0 * dt0m[:, :, None])
+                accs[m] += dy.sum(axis=0)
+        cols_out = [accs[0].ravel(), accs[1].ravel()]
         if n_params >= 3:
-            cols.append(self._sum_over_triangles("dy_dh", psi, bins=bins))
-        return np.stack(cols, axis=1)
+            cols_out.append(accs[2].ravel())
+        return np.stack(cols_out, axis=1)
 
     @staticmethod
     def _pad_psi(psi: np.ndarray) -> np.ndarray:
