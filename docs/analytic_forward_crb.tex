@@ -287,6 +287,22 @@ del rasterizador, pero ahora la masa se traspasa \emph{gradualmente} entre bins
 vecinos. Esta es \textbf{la pieza central}. Por defecto
 $\tau=\Delta t=3.9\times10^{-10}$\,s.
 
+\begin{figure}[ht]
+\centering
+\IfFileExists{../plots/crb_smoothing_binning.png}{%
+\includegraphics[width=0.9\textwidth]{../plots/crb_smoothing_binning.png}%
+}{\textit{(Pendiente: ejecutar \texttt{generate\_smoothing\_plots.py}.)}}
+\caption{Binning temporal (paso (i), \emph{pieza central}). \textbf{Izquierda:}
+funci\'on \textbf{no derivable} (dura): la energ\'ia se deposita entera en una
+\emph{caja} por bin ($\lceil\cdot\rceil$ / Dirac), de modo que \emph{salta} de
+golpe del bin $j$ al $j{+}1$ al cruzar el borde. \textbf{Derecha:} su
+\textbf{reemplazo suave}, la diferencia de $\erf$ \eqref{eq:erf-bin} para los
+mismos dos bins: las curvas $S_j,S_{j+1}$ se solapan y la energ\'ia se
+\emph{traspasa gradualmente} (cajas duras punteadas de referencia). Par\'ametros
+reales $\tau=\Delta t$ de \texttt{ForwardConfig}.}
+\label{fig:smooth-binning}
+\end{figure}
+
 %------------------------------------------------------------------------------
 \subsection{(ii) Ocultamiento: de umbral duro a sigmoide de penumbra}
 \label{sec:vis}
@@ -329,6 +345,21 @@ $\sigma'=\kappa\,\sigma(1-\sigma)$. El par\'ametro $\kappa$ es el ancho de
 \emph{penumbra}: la transici\'on sombra$\to$luz ocurre en una banda de
 semi-anchura $\sim1/\kappa$ (metros). Por defecto $\kappa=60$ (penumbra
 $\sim1.7$\,cm, comparable al tama\~no de p\'ixel).
+
+\begin{figure}[ht]
+\centering
+\IfFileExists{../plots/crb_smoothing_occlusion.png}{%
+\includegraphics[width=0.9\textwidth]{../plots/crb_smoothing_occlusion.png}%
+}{\textit{(Pendiente: ejecutar \texttt{generate\_smoothing\_plots.py}.)}}
+\caption{Ocultamiento (paso (ii)). \textbf{Izquierda:} funci\'on \textbf{no
+derivable} (dura): el Heaviside $\mathbf 1\{d_{\mathrm{edge}}>0\}$, con salto en
+$d_{\mathrm{edge}}=0$. \textbf{Derecha:} su \textbf{reemplazo suave}, la sigmoide
+$\sigma(\kappa\,d_{\mathrm{edge}})$ \eqref{eq:sigmoid} con $\kappa=60$ (penumbra
+$\sim1/\kappa$); una segunda curva con $\kappa=200$ sugiere el l\'imite
+$\kappa\to\infty$ (Heaviside punteado de referencia). Par\'ametro real de
+\texttt{ForwardConfig}.}
+\label{fig:smooth-occlusion}
+\end{figure}
 
 %------------------------------------------------------------------------------
 \subsection{(iii) \emph{Clamps}: de \texorpdfstring{$\max(0,\cdot)$}{max(0,.)} a \emph{softplus}}
@@ -373,6 +404,21 @@ lo que encadena de forma natural con el resto. El codo se suaviza en una escala
 $\sim1/\beta$; por defecto $\beta=50$ (ancho $\sim0.02$). Las distancias
 $\norm{\cdot}=\sqrt{\langle\cdot,\cdot\rangle}$ ya son $C^\infty$ mientras no se
 anulen (garantizado por $\vect{p}_s\neq\vect{p}_l,\vect{p}_f$).
+
+\begin{figure}[ht]
+\centering
+\IfFileExists{../plots/crb_smoothing_foreshortening.png}{%
+\includegraphics[width=0.9\textwidth]{../plots/crb_smoothing_foreshortening.png}%
+}{\textit{(Pendiente: ejecutar \texttt{generate\_smoothing\_plots.py}.)}}
+\caption{\emph{Foreshortening} (paso (iii)). \textbf{Izquierda:} funci\'on
+\textbf{no derivable} (dura): el \emph{clamp} $\max(0,c_k)$, con codo no derivable
+en $c_k=0$. \textbf{Derecha:} su \textbf{reemplazo suave}, la
+$\softplus_\beta(c_k)$ \eqref{eq:softplus} con $\beta=50$; se anota la cota
+uniforme $(\log2)/\beta$ (Prop.~\ref{prop:softplus}) y una segunda curva con
+$\beta=200$ sugiere el l\'imite $\beta\to\infty$ ($\max(0,\cdot)$ punteado de
+referencia). Par\'ametro real de \texttt{ForwardConfig}.}
+\label{fig:smooth-foreshortening}
+\end{figure}
 
 %------------------------------------------------------------------------------
 \subsection{(iv) Ensamblado de \texorpdfstring{$g(\vect{\psi})=A\,S+b$}{g = A S + b}}
