@@ -58,7 +58,7 @@ def plot_occlusion() -> Path:
     x = np.linspace(-0.1, 0.1, 2000)
     hard = np.where(x > 0.0, 1.0, 0.0)
     soft = 1.0 / (1.0 + np.exp(-kappa * x))
-    soft_hi = 1.0 / (1.0 + np.exp(-200.0 * x))
+    soft_hi = 1.0 / (1.0 + np.exp(-1000.0 * x))
 
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(9.2, 3.4))
 
@@ -82,9 +82,9 @@ def plot_occlusion() -> Path:
     axR.plot(x, soft, color="C0", linewidth=2.0,
              label=rf"$\sigma(\kappa\, d_{{edge}})$,  $\kappa={kappa:.0f}$")
     axR.plot(x, soft_hi, "--", color="C2", linewidth=1.3,
-             label=r"$\kappa=200$ ($\to$ Heaviside)")
-    axR.set_title(rf"Oclusion (suave): sigmoide  ($\kappa={kappa:.0f}$, "
-                  rf"penumbra $\sim1/\kappa={1.0/kappa*100:.1f}$ cm)",
+             label=r"$\kappa=1000$ ($\to$ Heaviside)")
+    axR.set_title(rf"Oclusion (suave): sigmoide  ($\kappa={kappa:.0f}=1/$pixel, "
+                  rf"penumbra $\sim1/\kappa={1.0/kappa*100:.2f}$ cm)",
                   fontsize=FS_TITLE)
     axR.set_xlabel(r"$d_{edge}$  (coordenada de cruce, m)", fontsize=FS_LABEL)
     axR.set_ylabel("visibilidad (derivable, suave)", fontsize=FS_LABEL)

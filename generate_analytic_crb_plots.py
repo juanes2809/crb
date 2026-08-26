@@ -13,11 +13,12 @@ and shape-normalized (median sigma_rho matched), plus a numeric comparison table
 
 With the (a)+(b)+(c) variant the analytic forward is the *most faithful* smooth
 analogue of the rasterized simulator (physical amplitude + the simulator's own
-64x64 / FOV 0.25 grid + a SUM over the real facet.obj triangles placed with the
-simulator's symbolic transform), so absolute CRB magnitudes are now DIRECTLY
-comparable: the as-is (real-magnitude) overlay lands on the FD ellipses to within
-~10-15% in sigma_rho.  The shape-normalized overlay and aspect/tilt columns
-remain as a shape/orientation cross-check.
+64x64 / FOV 0.25 grid + a SUM over the real facet.obj triangles, DENSIFIED to 512,
+placed with the simulator's symbolic transform, and smoothing widths tied to the
+simulator's discretization: kappa=1/pixel, tau=bin/sqrt(12)).  Absolute CRB
+magnitudes are now DIRECTLY comparable: the as-is (real-magnitude) overlay lands
+on the FD ellipses to within ~10% in BOTH sigma_rho AND sigma_phi across the grid.
+The shape-normalized overlay and aspect/tilt columns remain as a cross-check.
 
 Run:  python3 generate_analytic_crb_plots.py
 """
@@ -274,15 +275,18 @@ def write_comparison_table(
         "NOTA: variante (a)+(b)+(c) -- amplitud fisica + rejilla del simulador (64x64,"
     )
     lines.append(
-        "FOV 0.25, bin 3.9e-10) + SUMA sobre los triangulos reales de facet.obj con el"
+        "FOV 0.25, bin 3.9e-10) + SUMA sobre los triangulos reales de facet.obj DENSIFICADO"
     )
     lines.append(
-        "placement simbolico del simulador. Las magnitudes ABSOLUTAS ya son comparables:"
+        "(512 triangulos) con placement simbolico, y anchos de suavizado ligados a la"
     )
     lines.append(
-        "sig_rho analitico/FD ~ 0.9-1.05 en toda la rejilla. Tambien se reporta la FORMA:"
+        "discretizacion del simulador (kappa=256=1/pixel; tau=bin/sqrt(12)). Resultado:"
     )
-    lines.append("aspect = eje_mayor/eje_menor y el tilt de la elipse 3-sigma en (rho, phi).")
+    lines.append(
+        "sig_rho Y sig_phi analitico/FD ~ 1.0-1.11 en TODA la rejilla (ambas ~1:1). Tambien"
+    )
+    lines.append("se reporta la FORMA: aspect = eje_mayor/eje_menor y el tilt de la elipse 3-sigma.")
     lines.append("=" * 118)
     header = (
         f"{'rho':>4} {'phi':>4} | "
@@ -394,16 +398,21 @@ def write_latex_table(
 
 def conclusion_text(have_fd: bool) -> str:
     base = (
-        "CONCLUSION -- variante (a)+(b)+(c), la mas fiel\n"
-        "----------------------------------------------\n"
+        "CONCLUSION -- variante (a)+(b)+(c) densificada, la mas fiel\n"
+        "----------------------------------------------------------\n"
         "Esta variante combina amplitud fisica (a), la rejilla del simulador (b) y la\n"
-        "SUMA sobre los triangulos reales de facet.obj con placement simbolico (c). Es\n"
-        "el forward diferenciable mas parecido a la funcion del simulador, y por eso\n"
-        "las CRB son comparables EN MAGNITUD, no solo en forma.\n\n"
-        "1) Magnitud comparable: sig_rho analitico/FD ~ 0.9-1.05 en toda la rejilla y\n"
-        "   sig_phi dentro de ~0.6-1.35. El overlay a magnitud real (no normalizado) ya\n"
-        "   cae sobre las elipses FD. En el limite duro (beta,kappa -> inf, tau -> 0) el\n"
-        "   forward suave converge al del simulador, de modo que las Fisher coinciden.\n\n"
+        "SUMA sobre los triangulos reales de facet.obj DENSIFICADO (512) con placement\n"
+        "simbolico (c). Es el forward diferenciable mas parecido a la funcion del\n"
+        "simulador, y por eso las CRB son comparables EN MAGNITUD, no solo en forma.\n\n"
+        "1) Magnitud comparable en AMBOS ejes: sig_rho Y sig_phi analitico/FD ~ 1.0-1.11\n"
+        "   en toda la rejilla. El overlay a magnitud real (no normalizado) cae sobre las\n"
+        "   elipses FD. Dos ingredientes lo logran: (i) DENSIFICAR la faceta (la suma\n"
+        "   sobre pocos triangulos es una cuadratura de superficie demasiado gruesa; con\n"
+        "   ~128-512 triangulos converge) y (ii) ligar los anchos de suavizado a la\n"
+        "   discretizacion del simulador: kappa=1/pixel (penumbra=1 pixel) fija sig_phi,\n"
+        "   tau=bin/sqrt(12) (misma varianza que el top-hat del ceil) fija sig_rho.\n"
+        "   En el limite duro (beta,kappa -> inf, tau -> 0) el forward suave converge al\n"
+        "   del simulador, de modo que las Fisher coinciden.\n\n"
         "2) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS\n"
         "   (sympy), C-infinito por construccion. El Jacobiano FD del rasterizador se\n"
         "   calcula sobre un forward con escalones: la cuantizacion temporal ceil(.) y\n"
@@ -413,15 +422,11 @@ def conclusion_text(have_fd: bool) -> str:
         "   elipse analitica es por tanto la mejor CONDICIONADA (Fisher mas estable).\n\n"
         "3) Forma/orientacion: ambos metodos producen elipses (burbujas) finas en\n"
         "   angulo -- la resolucion azimutal que aporta la arista ocluyente -- y mas\n"
-        "   anchas en rango, coherente con la fisica del borde. La orientacion\n"
-        "   (columna tilt) es consistente entre metodos.\n\n"
-        "4) Salvedad: se usa el mesh CRUDO (sin densificar) de facet.obj (2 triangulos),\n"
-        "   mientras el simulador densifica a ~5000; la suma sobre 2 centroides es una\n"
-        "   cuadratura gruesa de la integral de superficie, suficiente para acercar la\n"
-        "   magnitud pero no identica. Persisten los anchos de suavizado beta,kappa,tau.\n\n"
-        "VEREDICTO: para un CRB diferenciable, la variante (a)+(b)+(c) es la mejor: "
-        "derivadas\nexactas, Fisher bien condicionada Y magnitud comparable al "
-        "rasterizador."
+        "   anchas en rango, coherente con la fisica del borde. El aspecto medio coincide\n"
+        "   (~8.3 vs 8.2) y la orientacion (tilt) es consistente entre metodos.\n\n"
+        "VEREDICTO: la variante (a)+(b)+(c) densificada es la mas fiel de todas: derivadas\n"
+        "exactas, Fisher bien condicionada Y magnitud comparable al rasterizador en\n"
+        "ambos ejes (sig_rho y sig_phi)."
     )
     if not have_fd:
         base = (
