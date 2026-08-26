@@ -25,6 +25,26 @@ paper.  Concretely, for facet centroid ``p_s`` and floor pixel ``p_f``:
     arrival_bin = ceil((d1+d2)/(c*Dt));  intensity deposited whole into that bin
     noc = (xint > 0),  xint = s_x - s_y*(s_x - p_fx)/(s_y - p_fy)
 
+**Physical normalization (variant (a)+(b)).**  The amplitude and grid are matched
+to the simulator so the CRB is comparable *in magnitude* with the finite-
+difference (FD) route (``regenerate_crb_standard_regions.py``):
+
+* (a) the arbitrary photon gain ``G`` is removed; the spatial amplitude is the
+  simulator's own radiometry with the point-facet's *physical area* substituted
+  for the per-triangle area, ``area_eff = w*h`` (``w=0.5`` m fixed, ``h`` the
+  estimated height), and the real ``laser_intensity = 1000``:
+  ``A = I_laser * w*h * sp(c1)*sp(c2)*sp(c3)*sp(c4) * vis / (4 pi^2 d1^2 d2^2)``.
+  The facet centroid sits at ``z = h/2`` (the simulator's facet spans 0..h), so
+  the amplitude now scales with ``h`` exactly as the mesh does.
+* (b) the floor grid is the simulator's: ``fov_width=0.25``, centre
+  ``[0,-0.125,0]``, ``pixel_dim=64`` (pixel centres are the simulator's
+  ``linspace``), and the real ``bin_size=3.9e-10`` s.  Only a bin window around
+  the pulse is evaluated (empty bins contribute ~0 to the Fisher information).
+
+As a result the analytic and FD Cramer-Rao bounds live on the same physical
+scale and converge as the smoothing (``tau``, ``1/beta``, ``1/kappa``) is
+reduced, unlike the earlier version with its own gain and 8x8 grid.
+
 Every source of non-differentiability of that function is replaced by a smooth,
 closed-form analogue:
 
@@ -37,15 +57,19 @@ Simulator (non-smooth)        Analytic smooth analogue (this module)
    (sampled Heaviside)           d_edge == the simulator's xint, penumbra width ~1/kappa
 ``max(0, dot_k)`` (4 cosines) softplus ``(1/beta) log(1 + exp(beta x))`` on each of the
    (foreshortening clamps)       FOUR two-bounce cosines (smooth hinge, width ~1/beta)
-``/(4*pi^2 * d1^2 * d2^2)``   kept as-is (smooth); ``area`` folded into the gain G
+``/(4*pi^2 * d1^2 * d2^2)``   kept as-is (smooth); ``I_laser * area_eff`` = the
+   times ``I_laser * area``      simulator radiometry with physical facet area w*h
 deposit in integer pixel/bin  factorized product ``A_i(psi) * S_ij(psi)`` evaluated
                                  analytically on a fixed floor/time grid
 ============================  ==========================================================
 
-The triangle ``area`` (which varies per triangle in the mesh simulator) is folded
-into the constant gain ``G`` / albedo ``alpha`` as an *effective constant facet
-area* (point-facet assumption).  The camera position ``p_c`` plays NO role in the
-two-bounce forward and is not used.
+The mesh simulator sums ``I_laser * area_tri * (dots)/(4 pi^2 d1^2 d2^2)`` over the
+triangles that tile the facet; their areas add up to ``w*h``.  The point-facet
+analogue therefore uses a *single* effective area ``area_eff = w*h`` at the facet
+centroid ``z = h/2`` (variant (a)), which reproduces the mesh magnitude to leading
+order while remaining differentiable in ``psi``.  There is no free gain any more;
+``alpha`` is an optional albedo kept fixed at 1.  The camera position ``p_c`` plays
+NO role in the two-bounce forward and is not used.
 
 The parameter Jacobian is therefore available in closed form for the Fisher
 information ``I_{mk} = sum_q (1/g_q) dg_q/dpsi_m dg_q/dpsi_k`` and
@@ -96,9 +120,12 @@ class ForwardConfig:
     """Fixed geometry + smoothing parameters of the analytic forward.
 
     All fields are *fixed* w.r.t. the estimated parameters ``psi=(rho,phi,h)``;
-    only the facet pose is differentiated.  The defaults follow the simulator's
-    conventions (laser at the origin pointing +z, floor FOV ~0.5 m adjacent to
-    the occluding edge, bin size 390 ps).
+    only the facet pose is differentiated.  The defaults are the simulator's
+    values (``simulation_polar_clean.ipynb`` cells 3/5 and cell 8): laser at the
+    origin pointing +z, floor FOV 0.25 m centred at ``[0,-0.125,0]`` on a 64x64
+    pixel grid, bin size 390 ps, ``laser_intensity=1000`` and facet width
+    ``w=0.5`` m.  With these the analytic CRB is comparable *in magnitude* to the
+    finite-difference route.
 
     Smoothing parameters (documented in docs/analytic_forward_crb.tex):
 
@@ -119,21 +146,22 @@ class ForwardConfig:
     # callers that still pass it; it plays no role in the intensity or Jacobian).
     p_c: Tuple[float, float, float] = (0.0, -0.25, 1.5)    # SPAD camera position (unused)
 
-    # --- floor FOV pixel grid ------------------------------------------------
-    fov_width: float = 0.5          # metres (square FOV side)
+    # --- floor FOV pixel grid (simulator: camera_FOV=0.25, 64x64) ------------
+    fov_width: float = 0.25         # metres (square FOV side) = camera_FOV
     fov_center_x: float = 0.0
-    fov_center_y: float = -0.25     # camera_FOV_center = [0, -FOV/2, 0]
-    pixel_dim: int = 8              # pixel_dim x pixel_dim floor samples
+    fov_center_y: float = -0.125    # camera_FOV_center = [0, -camera_FOV/2, 0]
+    pixel_dim: int = 64             # cam_pixel_dim x cam_pixel_dim floor samples
 
     # --- temporal binning ----------------------------------------------------
-    bin_size: float = 3.9e-10       # seconds (Delta t)
-    n_time_bins: Optional[int] = None   # auto if None
+    bin_size: float = 3.9e-10       # seconds (Delta t), simulator's bin_size
+    n_time_bins: Optional[int] = None   # auto: only the bins covering the pulse
     time_margin_bins: int = 6       # extra bins padding around the t0 window
 
-    # --- radiometry ----------------------------------------------------------
-    alpha: float = 1.0              # albedo
-    gain: float = 1.0e5             # overall photon gain (laser power * scale)
-    background: float = 0.1         # b_q  (keeps 1/g finite without eps floor)
+    # --- radiometry (simulator normalization: I_laser * area_eff) ------------
+    laser_intensity: float = 1000.0  # simulator's laser_intensity
+    w: float = 0.5                   # facet physical width (m); area_eff = w*h
+    alpha: float = 1.0               # optional albedo (kept = 1, no free gain)
+    background: float = 0.1          # b_q  (keeps 1/g finite without eps floor)
 
     # --- smoothing widths ----------------------------------------------------
     beta: float = 50.0              # softplus sharpness (cosine hinge width ~1/beta)
@@ -148,7 +176,8 @@ class ForwardConfig:
         """
         return (
             self.p_l, self.n_l, self.n_f,
-            self.alpha, self.gain, self.beta, self.kappa, self.tau, C_LIGHT,
+            self.laser_intensity, self.w, self.alpha,
+            self.beta, self.kappa, self.tau, C_LIGHT,
         )
 
 
@@ -165,15 +194,17 @@ def _build_symbolic(key: Tuple) -> Dict[str, Callable]:
     """
     import sympy as sp
 
-    (p_l, n_l, n_f, alpha, gain, beta, kappa, tau, c) = key
+    (p_l, n_l, n_f, laser_intensity, w, alpha, beta, kappa, tau, c) = key
 
     rho, phi, h = sp.symbols("rho phi h", real=True)
     px, py, tlo, thi = sp.symbols("px py tlo thi", real=True)
 
     # --- facet pose ----------------------------------------------------------
+    # Centroid at z = h/2: the simulator's facet spans z in [0, h], so its
+    # centroid (and every triangle's mean) sits at half height, not at z=h.
     sx = rho * sp.cos(phi)
     sy = rho * sp.sin(phi)
-    ps = sp.Matrix([sx, sy, h])            # p_s  = scene_center (triangle centroid)
+    ps = sp.Matrix([sx, sy, h / 2])        # p_s  = scene_center (facet centroid)
     ns = sp.Matrix([-sp.cos(phi), -sp.sin(phi), 0])   # n_s = facet normal
 
     pf = sp.Matrix([px, py, 0])            # p_f  = floor pixel (cam_pos)
@@ -207,11 +238,16 @@ def _build_symbolic(key: Tuple) -> Dict[str, Callable]:
     vis = 1 / (1 + sp.exp(-kappa * d_edge))
 
     # --- radial falloff: simulator's 1/(4 pi^2 d1^2 d2^2) -------------------
-    # The triangle ``area`` is folded into ``gain`` as an effective constant
-    # facet area (point-facet assumption); the 4*pi^2 constant is the simulator's
-    # ``fourpi = 4*np.pi*np.pi`` -- NOT the paper's 8*pi^3.
+    # The 4*pi^2 constant is the simulator's ``fourpi = 4*np.pi*np.pi`` -- NOT
+    # the paper's 8*pi^3.  The amplitude is the simulator's own radiometry
+    #   intensity = I_laser * area * dot1*dot2*dot3*dot4 / (4 pi^2 d1^2 d2^2)
+    # with the per-triangle ``area`` replaced by the point-facet's PHYSICAL area
+    # ``area_eff = w*h`` (variant (a)): w=0.5 m fixed, h the estimated height, so
+    # the magnitude scales with h exactly like the mesh.  No free gain; ``alpha``
+    # is an optional albedo fixed at 1.
+    area_eff = w * h
     denom = 4 * sp.pi**2 * d1**2 * d2**2
-    A = alpha * gain * vis * f_fore / denom  # spatial amplitude of pixel
+    A = alpha * laser_intensity * area_eff * vis * f_fore / denom
 
     # --- analytic pulse integral over the bin [tlo, thi] --------------------
     # The simulator deposits the WHOLE pixel intensity into a single arrival bin
@@ -468,6 +504,7 @@ if __name__ == "__main__":  # small smoke test
     J = m.jacobian_g(psi0)
     print(f"grid: {m.config.pixel_dim}x{m.config.pixel_dim} pixels, "
           f"N_q={g.size}, J={J.shape}")
+    print(f"radiometry: I_laser={cfg.laser_intensity}, area_eff=w*h={cfg.w}*h")
     print(f"g range: [{g.min():.4g}, {g.max():.4g}]  (b={cfg.background})")
     res = compute_crb_analytic(psi0)
     print(f"sigma_rho={res['sigma_rho']:.4g} m, "
