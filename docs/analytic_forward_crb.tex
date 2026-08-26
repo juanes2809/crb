@@ -287,19 +287,40 @@ del rasterizador, pero ahora la masa se traspasa \emph{gradualmente} entre bins
 vecinos. Esta es \textbf{la pieza central}. Por defecto
 $\tau=\Delta t=3.9\times10^{-10}$\,s.
 
+\paragraph{Convergencia, conservaci\'on de masa y el \emph{trade-off}.} El
+parecido con la caja dura lo controla el cociente $\tau/\Delta t$: cuanto menor
+es $\tau$, m\'as verticales son los flancos de $S_j$ y en el l\'imite
+$\tau\to0^+$ se recupera exactamente el binning duro (consistencia,
+Fig.~\ref{fig:smooth-binning}(a)). El criterio \emph{correcto} de validez, sin
+embargo, no es el parecido visual sino la \textbf{conservaci\'on de masa}: para
+\emph{todo} $\tau>0$ se cumple $\sum_j S_j(t_0)=1$ (la energ\'ia total del pulso se
+reparte entre bins pero no se crea ni se destruye), como muestra la l\'inea plana
+$\approx1$ de la Fig.~\ref{fig:smooth-binning}(b). Finalmente, la derivada
+$\partial S_j/\partial t_0$ \eqref{eq:dS} es \textbf{continua y acotada} para
+$\tau$ finito, pero \emph{se afila} (su pico crece $\sim1/\tau$ y se angosta)
+conforme $\tau\to0$ (Fig.~\ref{fig:smooth-binning}(c)): \'ese es el \emph{trade-off}
+suavidad$\leftrightarrow$fidelidad, y la raz\'on de que el l\'imite duro no sea
+derivable (la derivada tiende a deltas). Mantener $\tau$ finito da lo mejor de
+ambos: fidelidad razonable \emph{y} una derivada exacta y bien condicionada.
+
 \begin{figure}[ht]
 \centering
 \IfFileExists{../plots/crb_smoothing_binning.png}{%
 \includegraphics[width=0.9\textwidth]{../plots/crb_smoothing_binning.png}%
 }{\textit{(Pendiente: ejecutar \texttt{generate\_smoothing\_plots.py}.)}}
-\caption{Binning temporal (paso (i), \emph{pieza central}). \textbf{Izquierda:}
-funci\'on \textbf{no derivable} (dura): la energ\'ia se deposita entera en una
-\emph{caja} por bin ($\lceil\cdot\rceil$ / Dirac), de modo que \emph{salta} de
-golpe del bin $j$ al $j{+}1$ al cruzar el borde. \textbf{Derecha:} su
-\textbf{reemplazo suave}, la diferencia de $\erf$ \eqref{eq:erf-bin} para los
-mismos dos bins: las curvas $S_j,S_{j+1}$ se solapan y la energ\'ia se
-\emph{traspasa gradualmente} (cajas duras punteadas de referencia). Par\'ametros
-reales $\tau=\Delta t$ de \texttt{ForwardConfig}.}
+\caption{Binning temporal (paso (i), \emph{pieza central}): caja dura
+($\lceil\cdot\rceil$ / Dirac, no derivable) $\to$ diferencia de $\erf$
+\eqref{eq:erf-bin} ($C^\infty$), barriendo el ancho de pulso
+$\tau\in\{\Delta t,\Delta t/3,\Delta t/8,\Delta t/20\}$ (par\'ametros reales de
+\texttt{ForwardConfig}). \textbf{(a) Convergencia:} $S_j(t_0)$ para dos bins
+adyacentes $j,j{+}1$; a menor $\tau$ las curvas se pegan a la \emph{caja dura}
+(punteada) con flancos casi verticales, y $\tau\to0$ recupera el binning duro.
+\textbf{(b) Conservaci\'on de masa:} $\sum_j S_j(t_0)\approx1$ (l\'inea plana) para
+\emph{todo} $\tau$ --- la masa se traspasa entre bins pero se conserva; \'este es
+el criterio de validez, no el parecido visual. \textbf{(c) Derivada:}
+$dS_j/dt_0$ es continua y \textbf{acotada} para $\tau$ finito y \emph{se afila}
+(pico $\sim1/\tau$) al bajar $\tau$, ilustrando el \emph{trade-off}
+suavidad$\leftrightarrow$fidelidad y por qu\'e el l\'imite duro no es derivable.}
 \label{fig:smooth-binning}
 \end{figure}
 
