@@ -158,79 +158,113 @@ def plot_foreshortening() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# 3) Temporal binning: box (ceil / Dirac-in-bin) vs erf difference
+# 3) Temporal binning: box (ceil / Dirac-in-bin) vs erf difference.
+#    Richer 3-panel figure: (a) convergence to the hard box for several tau,
+#    (b) sum over bins (mass conservation ~1), (c) the (bounded, sharpening)
+#    derivative dS_j/dt0.
 # ---------------------------------------------------------------------------
 def plot_binning() -> Path:
-    dt = cfg.bin_size      # Delta t (s)
-    tau = cfg.tau          # Gaussian pulse std (s)
-    ns = 1.0e9             # s -> ns
+    from scipy.special import erf
 
-    # two adjacent bins j and j+1, edges at 2*dt, 3*dt, 4*dt
-    tlo_j, thi_j = 2.0 * dt, 3.0 * dt
-    tlo_j1, thi_j1 = 3.0 * dt, 4.0 * dt
+    dt = cfg.bin_size                       # Delta t (s)
+    taus = [dt, dt / 3.0, dt / 8.0, dt / 20.0]   # pulse-width sweep
+    tau_labels = [r"\Delta t", r"\Delta t/3", r"\Delta t/8", r"\Delta t/20"]
+    tau_colors = ["C0", "C2", "C1", "C4"]
 
-    # sweep the time-of-flight t0 across ~3 bins
-    t0 = np.linspace(1.5 * dt, 4.5 * dt, 3000)
+    # bin grid (in units of dt): ~11 bins, focus on two adjacent bins j, j+1
+    # around the shared edge at 0.  Bin k spans [k*dt, (k+1)*dt].
+    k_lo, k_hi = -5, 5                       # 11 bins: [-5,-4],...,[4,5]  (units dt)
+    edges_u = np.arange(k_lo, k_hi + 2)      # bin edges in units of dt
+    # the two focus bins share the edge at u=0:  bin j = [-1,0], bin j+1 = [0,1]
+    jlo, jhi = -1.0, 0.0
+    j1lo, j1hi = 0.0, 1.0
 
-    def box(t, lo, hi):
-        return np.where((t >= lo) & (t <= hi), 1.0, 0.0)
+    # x axis: time of flight t0 in units of dt, from -1.5 to +2.5 around the edge
+    u = np.linspace(-1.5, 2.5, 4000)         # t0 / dt
 
-    def erf_bin(t, lo, hi):
-        from scipy.special import erf
-        return 0.5 * (erf((hi - t) / (np.sqrt(2.0) * tau))
-                      - erf((lo - t) / (np.sqrt(2.0) * tau)))
+    def erf_bin_u(uu, lo, hi, tau_over_dt):
+        # S_j as a function of t0/dt, with bin edges lo,hi in units of dt
+        s2 = np.sqrt(2.0) * tau_over_dt
+        return 0.5 * (erf((hi - uu) / s2) - erf((lo - uu) / s2))
 
-    box_j = box(t0, tlo_j, thi_j)
-    box_j1 = box(t0, tlo_j1, thi_j1)
-    soft_j = erf_bin(t0, tlo_j, thi_j)
-    soft_j1 = erf_bin(t0, tlo_j1, thi_j1)
+    def box_u(uu, lo, hi):
+        return np.where((uu >= lo) & (uu <= hi), 1.0, 0.0)
 
-    x = t0 * ns
-    edges = np.array([tlo_j, thi_j, thi_j1]) * ns
+    box_j = box_u(u, jlo, jhi)
+    box_j1 = box_u(u, j1lo, j1hi)
 
-    fig, (axL, axR) = plt.subplots(1, 2, figsize=(9.2, 3.4))
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 3.8))
+    axA, axB, axC = axes
 
-    # left: hard boxes (energy jumps from bin j to j+1 at the shared edge)
-    axL.plot(x, box_j, color="C3", linewidth=1.8, label=r"bin $j$: $\mathbf{1}\{t_0\in[t^{(j)}_{lo},t^{(j)}_{hi}]\}$")
-    axL.plot(x, box_j1, color="C1", linewidth=1.8, label=r"bin $j{+}1$")
-    for e in edges:
-        axL.axvline(e, color="grey", linewidth=0.7, alpha=0.6)
-    axL.annotate("salto de energia\nentre bins",
-                 xy=(thi_j * ns, 0.5), xytext=(thi_j * ns + 0.06, 0.62),
-                 fontsize=FS_LEG, color="C3",
-                 arrowprops=dict(arrowstyle="->", color="C3", lw=0.8))
-    axL.set_title("Binning (dura): caja por bin (ceil / Dirac)", fontsize=FS_TITLE)
-    axL.set_xlabel(r"tiempo de vuelo $t_0$  (ns)", fontsize=FS_LABEL)
-    axL.set_ylabel(r"energia en el bin", fontsize=FS_LABEL)
-    axL.set_ylim(-0.08, 1.18)
-    _style(axL)
-    axL.legend(fontsize=FS_LEG, loc="upper right")
-
-    # right: erf-difference (energy transfers gradually between bins)
-    axR.plot(x, box_j, ":", color="grey", linewidth=1.1)
-    axR.plot(x, box_j1, ":", color="grey", linewidth=1.1,
-             label="cajas duras (referencia)")
-    axR.plot(x, soft_j, color="C0", linewidth=2.0, label=r"$S_j(t_0)$ (erf)")
-    axR.plot(x, soft_j1, color="C4", linewidth=2.0, label=r"$S_{j+1}(t_0)$ (erf)")
-    for e in edges:
-        axR.axvline(e, color="grey", linewidth=0.7, alpha=0.6)
-    axR.annotate("traspaso gradual\n(solapamiento)",
-                 xy=(thi_j * ns, 0.5), xytext=(thi_j * ns + 0.055, 0.66),
-                 fontsize=FS_LEG, color="C0",
-                 arrowprops=dict(arrowstyle="->", color="C0", lw=0.8))
-    axR.set_title(rf"Binning (suave): diferencia de erf  "
-                  rf"($\tau={tau*ns:.3f}$ ns, $\Delta t={dt*ns:.3f}$ ns)",
+    # ---- (a) convergence to the hard box for several tau --------------------
+    axA.fill_between(u, box_j, step=None, color="black", alpha=0.05)
+    axA.plot(u, box_j, ":", color="black", linewidth=1.4,
+             label=r"caja dura bin $j$ / $j{+}1$")
+    axA.plot(u, box_j1, ":", color="black", linewidth=1.4)
+    for tau, tl, tc in zip(taus, tau_labels, tau_colors):
+        r = tau / dt
+        axA.plot(u, erf_bin_u(u, jlo, jhi, r), color=tc, linewidth=1.7,
+                 label=rf"$S_j,\ \tau={tl}$")
+        axA.plot(u, erf_bin_u(u, j1lo, j1hi, r), color=tc, linewidth=1.7,
+                 linestyle="--", alpha=0.9)
+    for e in (jlo, jhi, j1hi):
+        axA.axvline(e, color="grey", linewidth=0.7, alpha=0.5)
+    axA.set_title(r"(a) Convergencia: $\tau\to0$ recupera el binning duro",
                   fontsize=FS_TITLE)
-    axR.set_xlabel(r"tiempo de vuelo $t_0$  (ns)", fontsize=FS_LABEL)
-    axR.set_ylabel(r"$S_j(t_0)$ (derivable, suave)", fontsize=FS_LABEL)
-    axR.set_ylim(-0.08, 1.18)
-    _style(axR)
-    axR.legend(fontsize=FS_LEG, loc="upper right")
+    axA.set_xlabel(r"tiempo de vuelo $t_0\,/\,\Delta t$", fontsize=FS_LABEL)
+    axA.set_ylabel(r"energia en el bin $S_j(t_0)$", fontsize=FS_LABEL)
+    axA.set_ylim(-0.08, 1.18)
+    _style(axA)
+    axA.legend(fontsize=7, loc="upper right", ncol=1, framealpha=0.9)
 
-    fig.suptitle("Binning temporal (pieza central): caja dura $\\to$ "
-                 "diferencia de $\\mathrm{erf}$ $C^\\infty$",
+    # ---- (b) sum over ALL bins: mass conservation ~ 1 -----------------------
+    for tau, tl, tc in zip(taus, tau_labels, tau_colors):
+        r = tau / dt
+        total = np.zeros_like(u)
+        for k in range(k_lo, k_hi + 1):
+            total += erf_bin_u(u, float(k), float(k + 1), r)
+        axB.plot(u, total, color=tc, linewidth=1.7, label=rf"$\tau={tl}$")
+    # hard boxes also sum to 1 across the (interior) support
+    total_hard = np.zeros_like(u)
+    for k in range(k_lo, k_hi + 1):
+        total_hard += box_u(u, float(k), float(k + 1))
+    axB.plot(u, total_hard, ":", color="black", linewidth=1.3,
+             label="cajas duras")
+    axB.axhline(1.0, color="grey", linewidth=0.8, alpha=0.7)
+    axB.annotate(r"$\sum_j S_j = 1$ (masa conservada) $\forall\tau$",
+                 xy=(0.5, 1.0), xytext=(-1.35, 1.055), fontsize=FS_LEG,
+                 color="black")
+    axB.set_title(r"(b) Conservacion de masa: $\sum_j S_j(t_0)\approx 1$",
+                  fontsize=FS_TITLE)
+    axB.set_xlabel(r"tiempo de vuelo $t_0\,/\,\Delta t$", fontsize=FS_LABEL)
+    axB.set_ylabel(r"$\sum_j S_j(t_0)$", fontsize=FS_LABEL)
+    axB.set_ylim(0.9, 1.1)
+    _style(axB)
+    axB.legend(fontsize=7, loc="lower right", ncol=2, framealpha=0.9)
+
+    # ---- (c) derivative dS_j/dt0: bounded for finite tau, sharpens as tau->0 -
+    for tau, tl, tc in zip(taus, tau_labels, tau_colors):
+        r = tau / dt
+        # dS_j/dt0 in units of 1/dt: (1/(r*sqrt(2pi)))[exp(-(hi-u)^2/2r^2) - exp(-(lo-u)^2/2r^2)]
+        dS = (1.0 / (r * np.sqrt(2.0 * np.pi))) * (
+            np.exp(-((jhi - u) ** 2) / (2.0 * r ** 2))
+            - np.exp(-((jlo - u) ** 2) / (2.0 * r ** 2))
+        )
+        axC.plot(u, dS, color=tc, linewidth=1.7, label=rf"$\tau={tl}$")
+    for e in (jlo, jhi):
+        axC.axvline(e, color="grey", linewidth=0.7, alpha=0.5)
+    axC.set_title(r"(c) Derivada $dS_j/dt_0$: acotada ($\tau$ finito), se afila al bajar $\tau$",
+                  fontsize=FS_TITLE - 0.5)
+    axC.set_xlabel(r"tiempo de vuelo $t_0\,/\,\Delta t$", fontsize=FS_LABEL)
+    axC.set_ylabel(r"$dS_j/dt_0$  (unidades $1/\Delta t$)", fontsize=FS_LABEL)
+    _style(axC)
+    axC.legend(fontsize=7, loc="upper right", ncol=1, framealpha=0.9)
+
+    fig.suptitle("Binning temporal (pieza central): caja dura $\\to$ diferencia "
+                 "de $\\mathrm{erf}$  $C^\\infty$  "
+                 "(convergencia, conservacion de masa, derivada)",
                  fontsize=FS_TITLE + 1)
-    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     out = PLOTS / "crb_smoothing_binning.png"
     fig.savefig(out, dpi=DPI)
     plt.close(fig)
