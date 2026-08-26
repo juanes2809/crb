@@ -319,14 +319,55 @@ $\tau\in\{\Delta t,\Delta t/3,\Delta t/8,\Delta t/20\}$ (par\'ametros reales de
 \texttt{ForwardConfig}). \textbf{(a) Convergencia:} $S_j(t_0)$ para dos bins
 adyacentes $j,j{+}1$; a menor $\tau$ las curvas se pegan a la \emph{caja dura}
 (punteada) con flancos casi verticales, y $\tau\to0$ recupera el binning duro.
-\textbf{(b) Conservaci\'on de masa:} $\sum_j S_j(t_0)\approx1$ (l\'inea plana) para
-\emph{todo} $\tau$ --- la masa se traspasa entre bins pero se conserva; \'este es
-el criterio de validez, no el parecido visual. \textbf{(c) Derivada:}
+\textbf{(b) Reparto de energ\'ia (conservaci\'on de masa):} para un pulso
+representativo ($\tau=\Delta t/3$), la energ\'ia de \emph{un} pulso se
+\emph{reparte} entre los dos bins vecinos como bandas \textbf{apiladas}
+($S_j$ abajo, $S_{j+1}$ encima, m\'as una banda fina de colas/otros bins), con
+altura total \emph{constante} $=1$; las anotaciones ($0.67{+}0.33{=}1.00$,
+$0.50{+}0.50{=}1.00$, $0.33{+}0.67{=}1.00$) muestran la aritm\'etica del reparto
+al desplazar $t_0$ sobre el borde compartido. El total $=1$ vale para \emph{todo}
+$\tau$ (aunque se dibuje uno): \'este es el criterio de validez, no el parecido
+visual. \textbf{(c) Derivada:}
 $dS_j/dt_0$ es continua y \textbf{acotada} para $\tau$ finito y \emph{se afila}
 (pico $\sim1/\tau$) al bajar $\tau$, ilustrando el \emph{trade-off}
 suavidad$\leftrightarrow$fidelidad y por qu\'e el l\'imite duro no es derivable.}
 \label{fig:smooth-binning}
 \end{figure}
+
+\begin{remark}[\textup{?`}Por qu\'e no llevar $\tau\to0$, $\kappa\to\infty$, $\beta\to\infty$?]
+\label{rem:trade-off}
+Ser\'ia tentador tomar los par\'ametros de suavizado al l\'imite para ``parecerse
+m\'as al simulador''. No conviene, por tres razones:
+\begin{itemize}[nosep]
+    \item \textbf{El objetivo es \emph{derivar}, y en el l\'imite la derivada se
+    rompe.} La derivada del pulso escala como $\sim1/\tau$
+    (Fig.~\ref{fig:smooth-binning}(c)) y la de la sigmoide como $\sim\kappa$
+    (Prop.~\ref{prop:sigmoid}). Al llevar $\tau\to0$, $\kappa,\beta\to\infty$, el
+    pico de la derivada \textbf{diverge} (tiende a deltas), la Fisher
+    $\matr I=\matr J^{\mathsf T}\diag(1/\vect g)\,\matr J$ \eqref{eq:fisher} se
+    vuelve \textbf{mal condicionada} e inestable, y la rejilla fija ni siquiera
+    resuelve transiciones tan finas: se \textbf{recupera el problema no derivable
+    original} (Prop.~\ref{prop:fd}). En una frase: m\'as fidelidad $\Rightarrow$
+    derivada m\'as salvaje.
+    \item \textbf{$\tau$ y $\kappa$ tienen sentido f\'isico.} El pulso l\'aser real
+    tiene \textbf{ancho finito} ($\sim\Delta t$) y el borde ocluyente tiene
+    \textbf{penumbra finita} ($\sim$ tama\~no de p\'ixel). El $\lceil\cdot\rceil$ y
+    el Heaviside del simulador son la \emph{idealizaci\'on cruda}, \textbf{no la
+    verdad f\'isica}: un $\tau,\kappa$ finitos son de hecho \emph{m\'as realistas}.
+    (Es cierto que ``$\tau\to0$ se parece m\'as al simulador'', pero el
+    \texttt{ceil} del simulador no es la f\'isica real.)
+    \item \textbf{$\beta$ es m\'as num\'erico.} El \emph{clamp} del coseno s\'i es un
+    $\max(0,\cdot)$ real; $\beta$ solo suaviza el codo. Se elige
+    \emph{suficientemente grande} para que el redondeo ($\sim1/\beta$) sea
+    insignificante salvo pegado a $\cos=0$ ($\beta=50\Rightarrow\sim0.02$,
+    min\'usculo frente a $[-1,1]$), pero \textbf{finito} para conservar la
+    diferenciabilidad (cota uniforme $(\log2)/\beta$, Prop.~\ref{prop:softplus}).
+\end{itemize}
+\textbf{Conclusi\'on:} se elige un valor \textbf{intermedio}, que balancea
+fidelidad $\leftrightarrow$ derivada acotada / Fisher bien condicionada. El
+l\'imite duro se recupera formalmente (Prop.~\ref{prop:consistencia}) pero no es
+donde se opera.
+\end{remark}
 
 %------------------------------------------------------------------------------
 \subsection{(ii) Ocultamiento: de umbral duro a sigmoide de penumbra}
