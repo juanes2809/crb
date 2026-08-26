@@ -88,7 +88,11 @@ gaussiano (diferencia de $\erf$), el umbral por una sigmoide de penumbra, y los
 \emph{writeup}) y se validan contra diferencias finitas del mismo forward suave,
 con error m\'aximo relativo $\sim\!5\times10^{-10}$. C\'odigo:
 \texttt{crb\_analytic\_forward.py}; validaci\'on:
-\texttt{validate\_analytic\_forward.py}.
+\texttt{validate\_analytic\_forward.py}. Importante: el CRB es funci\'on
+\emph{solo del modelo} (no consume datos), y este forward anal\'itico es un
+modelo \emph{aparte} --- no el simulador con sus salidas ``pasadas por funciones
+suaves'' ---; la Sec.~\ref{sec:que-entra} aclara qu\'e entra al CRB y por qu\'e su
+uso es leg\'itimo.
 \end{abstract}
 
 \tableofcontents
@@ -1059,6 +1063,100 @@ Aqu\'i \textbf{no} hace falta el piso $\varepsilon$ en $1/g$: el fondo $b>0$ ya 
 $g_q\ge b$. \texttt{compute\_crb\_analytic} devuelve la misma estructura de
 resultado que \texttt{compute\_crb\_polar} (reutiliza sus \emph{helpers}
 \texttt{\_crb\_sigmas\_from\_matrix} y las curvas de elipse $3\sigma$).
+
+%==============================================================================
+\section{\textup{?`}Qu\'e entra al CRB? Modelo frente a datos, y por qu\'e este \emph{forward}}
+\label{sec:que-entra}
+%==============================================================================
+
+Conviene aclarar una duda conceptual natural: \emph{``\textup{?`}usamos estas
+funciones suaves y los mismos datos de salida, o qu\'e? La simulaci\'on se hace
+con otras funciones''}. La respuesta corta: usamos estas funciones para
+\textbf{definir el modelo}, \textbf{no} para procesar datos; y no compartimos el
+array de salida del simulador. Desarrollemos por qu\'e.
+
+\paragraph{1. El CRB no consume datos.} La cota de Cram\'er--Rao es funci\'on
+\textbf{solo del modelo}, no de mediciones. Dados el forward $g(\vect{\psi})$
+(tasa esperada de fotones por medici\'on) y su Jacobiano en el punto verdadero
+$\vect{\psi}_0$, se forma $\matr{I}(\vect{\psi}_0)=\matr J^{\mathsf
+T}\diag(1/\vect g)\,\matr J$ y $\mathrm{CRB}=\matr I^{-1}$
+\eqref{eq:fisher}--\eqref{eq:crb}. \textbf{No} entra ninguna medici\'on, ni el
+cubo transitorio simulado, ni una realizaci\'on de ruido: el CRB es una
+\emph{cota te\'orica} de la varianza del mejor estimador insesgado \emph{para ese
+modelo}, evaluada en $\vect{\psi}_0$. Los ``datos'' solo har\'ian falta para
+\textbf{estimar} $\hat{\vect{\psi}}$ a partir de una medici\'on concreta; para el
+\emph{CRB} no.
+
+\paragraph{2. Hay dos modelos \emph{forward} del mismo fen\'omeno.} Ambos modelan
+el mismo conteo de Poisson del transitorio l\'aser$\to$faceta$\to$p\'ixel de piso,
+pero con prop\'ositos distintos:
+\begin{itemize}[nosep]
+    \item El \textbf{simulador rasterizado} $g_{\mathrm{sim}}(\vect{\psi})$
+    (\texttt{pyerti.py} / \texttt{simulation\_polar\_clean.ipynb}) sirve para
+    \emph{generar mediciones sint\'eticas} realistas (con ruido) sobre el cubo
+    $64\times64\times T$. En la ruta FD del CRB (\texttt{crb\_polar\_functions.py})
+    se usa como forward y se deriva por \textbf{diferencias finitas}.
+    \item El \textbf{forward anal\'itico} $g_{\mathrm{an}}(\vect{\psi})$
+    (este trabajo, Sec.~\ref{sec:construccion}) es su an\'alogo suave,
+    \textbf{standalone}, con su \emph{propia} rejilla fija de p\'ixeles de piso
+    ($8\times8$) y una ventana de bins alrededor del pulso. \textbf{No} usa el
+    cubo del simulador ni mediciones simuladas.
+\end{itemize}
+
+\paragraph{3. C\'omo ``entran'' estas funciones al CRB.} Las funciones suaves
+(diferencia de $\erf$ \eqref{eq:erf-bin}, sigmoide \eqref{eq:sigmoid}, softplus
+\eqref{eq:softplus}) son las que \textbf{definen} $g_{\mathrm{an}}(\vect{\psi})$
+en \eqref{eq:yq-smooth}. Se eval\'uan $g_{\mathrm{an}}$ y
+$\matr J_{\mathrm{an}}=\partial g_{\mathrm{an}}/\partial\vect{\psi}$ en
+$\vect{\psi}_0$ \emph{anal\'iticamente} (\texttt{sympy}, Sec.~\ref{sec:derivadas}),
+y de ah\'i $\matr I$ y $\mathrm{CRB}$. El simulador \textbf{no} se llama en la ruta
+anal\'itica.
+
+\begin{remark}[Respuesta directa a la pregunta]
+No es que ``metamos los datos del simulador por funciones suaves''.
+$g_{\mathrm{an}}$ es un \textbf{modelo aparte} del mismo fen\'omeno, elegido
+porque es \emph{diferenciable}; lo usamos para \emph{definir} la tasa esperada,
+no para procesar un array de mediciones. Tampoco compartimos el mismo array de
+salida: el anal\'itico tiene su propia rejilla, m\'as peque\~na ($8\times8$
+p\'ixeles $\times$ bins del pulso, frente a $64\times64\times T$). El punto de
+contacto entre ambos es la \emph{f\'isica} que modelan y la \emph{estructura}
+Poisson--Fisher, no un intercambio de datos.
+\end{remark}
+
+\paragraph{4. Justificaci\'on: por qu\'e vale usar $g_{\mathrm{an}}$ para el CRB.}
+\begin{itemize}[nosep]
+    \item \textbf{Misma f\'isica/geometr\'ia/radiometr\'ia:} $g_{\mathrm{an}}$
+    espeja a $g_{\mathrm{sim}}$ (dos rebotes, cuatro cosenos, $4\pi^2$, las mismas
+    distancias $d_1,d_2$ y el mismo $t_0$, Sec.~\ref{sec:partida}); solo
+    \emph{suaviza} las tres operaciones no derivables (Obs.~\ref{rem:tres}).
+    \item \textbf{Misma estructura estad\'istica} Poisson--Fisher: id\'entica
+    f\'ormula de $\matr I$ y CRB \eqref{eq:fisher}--\eqref{eq:crb}.
+    \item \textbf{Consistencia:} $g_{\mathrm{an}}\to g_{\mathrm{sim}}$ cuando
+    $\tau\to0$, $\kappa,\beta\to\infty$ (Prop.~\ref{prop:consistencia}), con la
+    masa conservada $\sum_j S_j=1$ para todo $\tau$
+    (Fig.~\ref{fig:smooth-binning}(b)); en el l\'imite es el \emph{mismo} modelo,
+    y con suavizado finito es f\'isicamente razonable (pulso real de ancho finito,
+    penumbra real).
+    \item \textbf{Beneficio:} derivadas \textbf{exactas} y Fisher mejor
+    condicionada, sin el ruido de discretizaci\'on ni la dependencia del paso
+    $\delta$ de las diferencias finitas (Sec.~\ref{sec:diagnostico},
+    Prop.~\ref{prop:fd}).
+    \item \textbf{Salvedades (honestas):} la \emph{magnitud} absoluta del CRB
+    depende de idealizaciones --- el \'area efectiva constante doblada en la
+    ganancia $G$ (Obs.~\ref{rem:area}), la rejilla propia $8\times8$ (m\'as
+    peque\~na), y los par\'ametros de suavizado $\tau,\kappa,\beta$ ---, de modo que
+    $g_{\mathrm{an}}$ \textbf{no} reproduce 1:1 la magnitud del simulador. Por eso
+    la comparaci\'on v\'alida con la ruta FD es de \textbf{forma/orientaci\'on} de
+    las elipses (que s\'i coincide), no de tama\~no (Sec.~\ref{sec:resultados}).
+\end{itemize}
+
+\paragraph{5. Relaci\'on con la ruta FD.} La CRB-FD \emph{s\'i} usa el simulador
+(deriv\'andolo por diferencias finitas); la CRB anal\'itica es \textbf{independiente}
+de \'el. Que la \emph{forma} de las elipses coincida entre ambas rutas
+(Sec.~\ref{sec:resultados}) es justamente lo que \textbf{valida} la geometr\'ia del
+modelo anal\'itico: dos derivaciones distintas del mismo fen\'omeno llegan a la
+misma estructura de incertidumbre, una con derivadas exactas y otra con el
+render de malla completo.
 
 %==============================================================================
 \section{Validaci\'on: anal\'itico contra diferencias finitas}
