@@ -217,30 +217,46 @@ def plot_binning() -> Path:
     _style(axA)
     axA.legend(fontsize=7, loc="upper right", ncol=1, framealpha=0.9)
 
-    # ---- (b) sum over ALL bins: mass conservation ~ 1 -----------------------
-    for tau, tl, tc in zip(taus, tau_labels, tau_colors):
-        r = tau / dt
-        total = np.zeros_like(u)
-        for k in range(k_lo, k_hi + 1):
-            total += erf_bin_u(u, float(k), float(k + 1), r)
-        axB.plot(u, total, color=tc, linewidth=1.7, label=rf"$\tau={tl}$")
-    # hard boxes also sum to 1 across the (interior) support
-    total_hard = np.zeros_like(u)
-    for k in range(k_lo, k_hi + 1):
-        total_hard += box_u(u, float(k), float(k + 1))
-    axB.plot(u, total_hard, ":", color="black", linewidth=1.3,
-             label="cajas duras")
-    axB.axhline(1.0, color="grey", linewidth=0.8, alpha=0.7)
-    axB.annotate(r"$\sum_j S_j = 1$ (masa conservada) $\forall\tau$",
-                 xy=(0.5, 1.0), xytext=(-1.35, 1.055), fontsize=FS_LEG,
-                 color="black")
-    axB.set_title(r"(b) Conservacion de masa: $\sum_j S_j(t_0)\approx 1$",
-                  fontsize=FS_TITLE)
+    # ---- (b) how ONE pulse's energy is SHARED between neighbours (stacks to 1)
+    # Representative pulse width tau = Delta t/3 (thin tails), focus near the
+    # shared edge at u=0 so the two adjacent bins hold ~all the mass.  The
+    # stacked bands (S_j, S_{j+1}, tails/other bins) add up to exactly 1.
+    r_rep = 1.0 / 3.0
+    r_rep_label = r"\Delta t/3"
+    xb = np.linspace(-0.5, 0.5, 800)
+    Sj = erf_bin_u(xb, jlo, jhi, r_rep)
+    Sj1 = erf_bin_u(xb, j1lo, j1hi, r_rep)
+    tails = np.clip(1.0 - Sj - Sj1, 0.0, None)   # energy in all other bins
+    axB.stackplot(
+        xb, Sj, Sj1, tails,
+        colors=["#4C72B0", "#9467BD", "#CCCCCC"],
+        labels=[r"$S_j(t_0)$ (bin $j$)", r"$S_{j+1}(t_0)$ (bin $j{+}1$)",
+                r"colas / otros bins"],
+        alpha=0.9,
+    )
+    axB.plot(xb, Sj + Sj1 + tails, color="black", linewidth=1.4,
+             label=r"total apilado $=1$")
+    # annotate the arithmetic of the split at a few t0 values
+    for up in (-0.15, 0.0, 0.15):
+        sj = float(erf_bin_u(np.array([up]), jlo, jhi, r_rep)[0])
+        sj1 = float(erf_bin_u(np.array([up]), j1lo, j1hi, r_rep)[0])
+        tl_ = max(0.0, 1.0 - sj - sj1)
+        axB.axvline(up, color="black", linewidth=0.6, alpha=0.35)
+        txt = (rf"${sj:.2f}+{sj1:.2f}+{tl_:.2f}=1.00$" if tl_ >= 0.01
+               else rf"${sj:.2f}+{sj1:.2f}=1.00$")
+        axB.annotate(txt, xy=(up, 1.0), xytext=(up, 1.045 + 0.045 * (up == 0.0)),
+                     fontsize=6.4, color="black", ha="center",
+                     arrowprops=dict(arrowstyle="->", color="black", lw=0.6))
+    axB.set_title(rf"(b) El suavizado REPARTE la energia entre bins (total$=1$, "
+                  rf"$\tau={r_rep_label}$)", fontsize=FS_TITLE - 0.5)
     axB.set_xlabel(r"tiempo de vuelo $t_0\,/\,\Delta t$", fontsize=FS_LABEL)
-    axB.set_ylabel(r"$\sum_j S_j(t_0)$", fontsize=FS_LABEL)
-    axB.set_ylim(0.9, 1.1)
+    axB.set_ylabel(r"reparto de energia (apilado a 1)", fontsize=FS_LABEL)
+    axB.set_xlim(-0.5, 0.5)
+    axB.set_ylim(0.0, 1.22)
     _style(axB)
-    axB.legend(fontsize=7, loc="lower right", ncol=2, framealpha=0.9)
+    axB.legend(fontsize=6.6, loc="lower center", ncol=2, framealpha=0.9)
+    axB.text(-0.49, 0.06, "invariancia total$=1$ vale para todo $\\tau$",
+             fontsize=6.4, color="black", alpha=0.8)
 
     # ---- (c) derivative dS_j/dt0: bounded for finite tau, sharpens as tau->0 -
     for tau, tl, tc in zip(taus, tau_labels, tau_colors):
@@ -262,7 +278,7 @@ def plot_binning() -> Path:
 
     fig.suptitle("Binning temporal (pieza central): caja dura $\\to$ diferencia "
                  "de $\\mathrm{erf}$  $C^\\infty$  "
-                 "(convergencia, conservacion de masa, derivada)",
+                 "(convergencia, reparto/conservacion de masa, derivada)",
                  fontsize=FS_TITLE + 1)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
     out = PLOTS / "crb_smoothing_binning.png"
