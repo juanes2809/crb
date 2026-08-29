@@ -66,6 +66,7 @@ Public API (unchanged)
 from __future__ import annotations
 
 import os
+import warnings
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -143,9 +144,12 @@ class ForwardConfig:
     roll: float = 0.0               # rotation about [0,1,0] (rad)
     # densification: subdivide the raw quad (2 tris) this many times to
     # approximate the simulator's surface integral (2 -> 8 -> 32 -> 128 -> 512
-    # -> 2048 ...).  A coarse 2-triangle sum is a poor surface quadrature; the
-    # integral has converged by ~128 triangles.  512 (subdiv 4) is comfortably
-    # converged and fast.
+    # -> 2048 ...).  Two quantities converge at DIFFERENT rates: the forward
+    # ENERGY converges by ~128 triangles (0.11% between 128 and 2048), but the CRB
+    # sigmas -- which depend on DERIVATIVES of the surface integral -- need more:
+    # sigma_rho still moves +6.9% from 128->512 and only +0.37% from 512->2048.
+    # So 512 (subdiv 4) is the first comfortably-converged level (512->2048
+    # <0.5%) and is used by default.
     subdivisions: int = 4           # 4 -> 512 triangles
 
     # --- radiometry ----------------------------------------------------------
@@ -167,6 +171,13 @@ class ForwardConfig:
     #     width bin_size, matching the range (sigma_rho) resolution.
     #   * beta stays large: the cosine clamp is a real max(0,.), only the corner
     #     is rounded (width ~1/beta ~ 0.02).
+    # NOTE (softplus overflow): the symbolic softplus form log(1+exp(beta*x))/beta
+    # overflows in float64 once beta*x >~ 709 (exp -> inf), so the hard limit
+    # beta->inf is only reachable numerically up to beta ~ 700.  A numerically
+    # stable equivalent is  max(x,0) + log1p(exp(-beta*|x|))/beta ; we do NOT
+    # substitute it in the SYMBOLIC expression (the |x|/branch would introduce
+    # non-smoothness / artifacts in sympy.diff).  beta=50 is far from the overflow
+    # regime, so this is only a caveat for very large beta.
     beta: float = 50.0              # softplus sharpness (cosine hinge width ~1/beta)
     kappa: float = 256.0            # occlusion sharpness (penumbra ~1 pixel = 1/kappa m)
     tau: float = 3.9e-10 / 12 ** 0.5  # Gaussian pulse std: matches bin 2nd moment
@@ -203,15 +214,15 @@ class ForwardConfig:
 # ---------------------------------------------------------------------------
 @lru_cache(maxsize=16)
 def _load_raw_mesh(obj_path: str, subdivisions: int = 0) -> Dict[str, Any]:
-    """Load the facet mesh: triangles (T,3,3), extents, min vertex, z-min ref.
+    """Load the facet mesh: triangles (T,3,3), extents and vertices.
 
     The facet is a flat quad (2 raw triangles).  To approximate the surface
     integral the simulator performs over its ~5000 densified triangles, we
     optionally **subdivide** the raw mesh ``subdivisions`` times (each pass turns
     every triangle into 4: 2 -> 8 -> 32 -> 128 -> 512 -> 2048 ...).  Subdivision
-    is planar, so the extents and the z-min reference vertex are unchanged (they
-    stay at a corner), i.e. the symbolic placement is unaffected; only the number
-    of triangles summed numerically grows.
+    is planar, so the extents are unchanged; only the number of triangles summed
+    numerically grows.  The z_min reference vertex is computed by the symbolic
+    builder from this config's pitch/roll/facet_w (see ``_pick_zmin_ref``).
     """
     import trimesh
 
@@ -225,30 +236,37 @@ def _load_raw_mesh(obj_path: str, subdivisions: int = 0) -> Dict[str, Any]:
     if ext_x <= 0 or ext_y <= 0:
         raise ValueError(f"Invalid facet extents {ext}; need ext_x,ext_y > 0")
 
-    # Reference vertex whose transformed z is minimal (for the z_min lift).
-    # For this planar facet with h>0 and pitch~pi/2, the ordering is pose
-    # independent (a corner), so we pick it once at a nominal pose (h=1, phi=0).
-    z_ref = _pick_zmin_ref(verts, ext_x, ext_y, 1.57, 0.0)
-
     return {
         "triangles": tris,
         "ext_x": ext_x,
         "ext_y": ext_y,
-        "z_ref": z_ref,           # (vx, vy, vz) vertex achieving min z
+        "verts": verts,           # (V, 3) mesh vertices (for the z_min reference)
         "n_triangles": int(tris.shape[0]),
     }
 
 
 def _pick_zmin_ref(
-    verts: np.ndarray, ext_x: float, ext_y: float, pitch: float, roll: float
+    verts: np.ndarray,
+    ext_x: float,
+    ext_y: float,
+    pitch: float,
+    roll: float,
+    facet_w: float,
 ) -> Tuple[float, float, float]:
-    """Raw vertex with the smallest transformed z (before the z_min lift)."""
+    """Vertex with the smallest transformed z (before the z_min lift).
+
+    Uses the SAME scale (``facet_w/ext_x`` in x, ``1/ext_y`` in y at nominal
+    ``h=1``), ``pitch`` and ``roll`` as the symbolic placement, so it stays
+    consistent if any of those config fields changes.  For a planar facet with
+    ``h>0`` the winning vertex is pose independent (a corner), so evaluating at
+    the nominal pose is enough.
+    """
     cp, sp = np.cos(pitch), np.sin(pitch)
     cr, sr = np.cos(roll), np.sin(roll)
     best_z = np.inf
     best_v = (0.0, 0.0, 0.0)
     for v in verts:
-        Sx, Sy, Sz = v[0] * (0.5 / ext_x), v[1] * (1.0 / ext_y), v[2]
+        Sx, Sy, Sz = v[0] * (facet_w / ext_x), v[1] * (1.0 / ext_y), v[2]
         # pitch about x
         Px, Py, Pz = Sx, Sy * cp - Sz * sp, Sy * sp + Sz * cp
         # roll about y
@@ -280,7 +298,8 @@ def _build_symbolic(key: Tuple) -> Dict[str, Callable]:
 
     mesh = _load_raw_mesh(_resolve_obj_path(obj_path))
     ext_x, ext_y = mesh["ext_x"], mesh["ext_y"]
-    z_ref = mesh["z_ref"]
+    # z_min reference computed with THIS config's pitch/roll/facet_w (not hardcoded)
+    z_ref = _pick_zmin_ref(mesh["verts"], ext_x, ext_y, pitch, roll, facet_w)
 
     rho, phi, h = sp.symbols("rho phi h", real=True)
     px, py, tlo, thi = sp.symbols("px py tlo thi", real=True)
@@ -422,6 +441,7 @@ class AnalyticForwardModel:
         # flattened raw-vertex coords per triangle (T, 9): v0x,v0y,v0z,v1x,...
         self._tri_flat = self._triangles.reshape(self.n_triangles, 9).astype(float)
         self._px, self._py = self._build_pixel_grid()
+        self._occlusion_warned = False   # warn only once about masked contributions
 
     # --- grids --------------------------------------------------------------
     def _build_pixel_grid(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -492,6 +512,21 @@ class AnalyticForwardModel:
         c = max(1, int(2_000_000 // max(1, pb)))
         return min(c, self.n_triangles)
 
+    def _warn_masked_once(self, n_masked: int) -> None:
+        """Emit a single RuntimeWarning if any contribution had to be masked."""
+        if n_masked and not self._occlusion_warned:
+            self._occlusion_warned = True
+            warnings.warn(
+                f"analytic forward: masked {n_masked} non-finite per-(triangle, "
+                "pixel) contribution(s) near the occlusion pole (s_y \u2248 p_y, "
+                "the denominator of d_edge). This is the direct analogue of the "
+                "simulator's valid_m mask (cell 8), which excludes those cases. "
+                "The published grid (phi in [30, 150] deg) is inside the safe "
+                "domain and is unaffected; masking only triggers for phi <~ 20 deg.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
     def _pulse(self, t0, tlo, thi):
         """Unit-area Gaussian pulse bin integral S and its t0-derivative.
 
@@ -519,14 +554,25 @@ class AnalyticForwardModel:
         c = self._chunk_size(P * B)
         px = self._px[None, :]                        # (1, P)
         py = self._py[None, :]
+        n_masked = 0
         for start in range(0, self.n_triangles, c):
             cols = [self._tri_flat[start:start + c, k].reshape(-1, 1)
                     for k in range(9)]               # 9 x (C, 1)
-            A, t0 = self._fns["fwd"](rho, phi, h, px, py, *cols)  # (C, P)
-            A = np.broadcast_to(np.asarray(A, float), (cols[0].shape[0], P))
-            t0 = np.broadcast_to(np.asarray(t0, float), (cols[0].shape[0], P))
-            S, _ = self._pulse(t0, tlo, thi)         # (C, P, B)
-            acc += (A[:, :, None] * S).sum(axis=0)
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                A, t0 = self._fns["fwd"](rho, phi, h, px, py, *cols)  # (C, P)
+                A = np.broadcast_to(np.asarray(A, float), (cols[0].shape[0], P)).copy()
+                t0 = np.broadcast_to(np.asarray(t0, float), (cols[0].shape[0], P)).copy()
+                # occlusion-pole guard: zero non-finite per-(triangle,pixel) cells
+                # (analogue of the simulator's valid_m mask). Finite cells are
+                # untouched, so the safe grid (phi in [30,150]) is bit-identical.
+                bad = ~(np.isfinite(A) & np.isfinite(t0))
+                if bad.any():
+                    n_masked += int(bad.sum())
+                    A[bad] = 0.0
+                    t0[bad] = 0.0            # finite dummy; contribution is A*S=0
+                S, _ = self._pulse(t0, tlo, thi)         # (C, P, B)
+                acc += (A[:, :, None] * S).sum(axis=0)
+        self._warn_masked_once(n_masked)
         return acc.ravel()
 
     def forward_g(self, psi: ArrayLike, bins=None) -> np.ndarray:
@@ -539,6 +585,19 @@ class AnalyticForwardModel:
         ``dy/dpsi = (dA/dpsi) S + A (dS/dt0)(dt0/dpsi)``; A, t0 and their psi
         derivatives are evaluated once per (triangle, pixel) with a CSE-shared
         lambdified call, and summed over triangles.
+
+        **Occlusion-pole guard / safe domain.**  The soft occlusion uses
+        ``d_edge = s_x - s_y (s_x - p_x)/(s_y - p_y)``, which has a pole at
+        ``s_y = p_y``.  For small azimuth (``phi <~ 20 deg``) some triangle
+        centroids fall at ``s_y < 0`` and cross pixel rows, so ``exp(-kappa d_edge)``
+        in ``d(vis)/dpsi`` overflows and yields ``inf*0 = nan`` in the gradient.
+        We therefore MASK to zero any per-(triangle, pixel) contribution whose
+        amplitude, time-of-flight or psi-derivatives are non-finite -- the direct
+        numerical analogue of the simulator's ``valid_m`` mask (cell 8), which
+        excludes exactly those pixels.  Finite cells are left bit-identical, so the
+        published grid (``phi in [30, 150] deg``, the safe domain) is unchanged;
+        the mask only engages for the extrapolated ``phi <~ 20 deg`` region, where
+        a one-time ``RuntimeWarning`` is emitted.
         """
         psi = self._pad_psi(np.asarray(psi, dtype=float).ravel())
         rho, phi, h, tlo, thi = self._resolve_bins(psi, bins=bins)
@@ -547,22 +606,39 @@ class AnalyticForwardModel:
         c = self._chunk_size(P * B)
         px = self._px[None, :]
         py = self._py[None, :]
+        n_masked = 0
         for start in range(0, self.n_triangles, c):
             C = min(c, self.n_triangles - start)
             cols = [self._tri_flat[start:start + c, k].reshape(-1, 1)
                     for k in range(9)]               # 9 x (C, 1)
-            vals = self._fns["amp_jac"](rho, phi, h, px, py, *cols)
-            A, dA = vals[0], vals[1:4]
-            t0, dt0 = vals[4], vals[5:8]
-            A = np.broadcast_to(np.asarray(A, float), (C, P))
-            t0 = np.broadcast_to(np.asarray(t0, float), (C, P))
-            S, dSdt0 = self._pulse(t0, tlo, thi)     # (C, P, B)
-            for m in range(3):
-                dAm = np.broadcast_to(np.asarray(dA[m], float), (C, P))
-                dt0m = np.broadcast_to(np.asarray(dt0[m], float), (C, P))
-                dy = (dAm[:, :, None] * S
-                      + A[:, :, None] * dSdt0 * dt0m[:, :, None])
-                accs[m] += dy.sum(axis=0)
+            with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+                vals = self._fns["amp_jac"](rho, phi, h, px, py, *cols)
+                A = np.broadcast_to(np.asarray(vals[0], float), (C, P)).copy()
+                dA = [np.broadcast_to(np.asarray(vals[1 + k], float), (C, P)).copy()
+                      for k in range(3)]
+                t0 = np.broadcast_to(np.asarray(vals[4], float), (C, P)).copy()
+                dt0 = [np.broadcast_to(np.asarray(vals[5 + k], float), (C, P)).copy()
+                       for k in range(3)]
+                # occlusion-pole guard (analogue of the simulator's valid_m mask):
+                # zero any per-(triangle,pixel) cell where the amplitude, the
+                # time-of-flight or ANY of their psi-derivatives is non-finite
+                # (near s_y ~ p_y the exp() in d(vis) overflows -> inf*0 = nan).
+                # Finite cells are left untouched, so the safe grid is identical.
+                bad = ~(np.isfinite(A) & np.isfinite(t0))
+                for arr in (*dA, *dt0):
+                    bad |= ~np.isfinite(arr)
+                if bad.any():
+                    n_masked += int(bad.sum())
+                    A[bad] = 0.0
+                    t0[bad] = 0.0
+                    for arr in (*dA, *dt0):
+                        arr[bad] = 0.0
+                S, dSdt0 = self._pulse(t0, tlo, thi)     # (C, P, B)
+                for m in range(3):
+                    dy = (dA[m][:, :, None] * S
+                          + A[:, :, None] * dSdt0 * dt0[m][:, :, None])
+                    accs[m] += dy.sum(axis=0)
+        self._warn_masked_once(n_masked)
         cols_out = [accs[0].ravel(), accs[1].ravel()]
         if n_params >= 3:
             cols_out.append(accs[2].ravel())
