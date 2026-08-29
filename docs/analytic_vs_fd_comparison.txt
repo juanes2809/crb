@@ -1,10 +1,14 @@
 Comparacion CRB analitico vs FD (rasterizado)  --  grid fixed_h [rho,phi]
 ======================================================================================================================
-NOTA: con la variante (a)+(b) la amplitud es fisica (I_laser=1000, area_eff=w*h)
-y la rejilla es la del simulador (64x64, bin real), de modo que las magnitudes
-absolutas SI son comparables: sigma_rho, sigma_phi quedan en la misma escala que
-el FD (faceta puntual vs render de malla). Ademas se compara la FORMA: relacion de
-aspecto (aspect = eje_mayor/eje_menor) y tilt de la elipse 3-sigma en (rho,phi).
+NOTA: la variante (a)+(b) pone la ESCALA FISICA correcta (I_laser=1000, area_eff=w*h,
+rejilla del simulador 64x64/bin real), asi que sigma_rho, sigma_phi estan en las MISMAS
+UNIDADES que el FD. PERO subsiste un SESGO DE CUADRATURA PUNTUAL sistematico: evaluar la
+radiometria en un solo punto (centroide, area w*h) sobreestima la intensidad ~1.5x frente
+a la suma sobre malla (dominado por oclusion: el centroide es visible cuando parte de la
+faceta real esta ocluida; mas 1/d2^2 y cosenos no lineales sobre 0.5x1 m). Ese sesgo NO
+desaparece al endurecer el suavizado (esta variante converge a su PROPIO forward duro
+puntual, no al de malla); por eso sigma_phi_analitico/FD baja hasta ~0.57. La correccion
+es la suma sobre malla (rama a+b+c). Se compara tambien la FORMA (aspect, tilt).
 ======================================================================================================================
  rho  phi |  A:sig_rho A:sig_phi  A:sig_h  A:asp  A:tilt |  F:sig_rho F:sig_phi  F:sig_h  F:asp  F:tilt
 -------------------------------------------------------------------------------------------------------
@@ -26,33 +30,44 @@ aspecto (aspect = eje_mayor/eje_menor) y tilt de la elipse 3-sigma en (rho,phi).
 -------------------------------------------------------------------------------------------------------
 Aspecto medio (mayor/menor)  analitico=9.36   FD=8.22
 
-CONCLUSION -- magnitud y forma
-------------------------------
+CONCLUSION -- escala fisica correcta, pero sesgo de cuadratura puntual
+---------------------------------------------------------------------
 Con la variante (a)+(b) el forward analitico usa la amplitud fisica del
 simulador (I_laser=1000, area_eff=w*h) y su misma rejilla (64x64, bin real),
-de modo que la CRB analitica y la FD quedan en la MISMA escala fisica.
+de modo que la CRB analitica y la FD quedan en las MISMAS UNIDADES / la misma
+escala fisica. Eso corrige el defecto de la version antigua (ganancia G=1e5 y
+rejilla 8x8 propias, escalas arbitrarias). PERO no las vuelve iguales.
 
-1) Magnitud: sigma_rho y sigma_phi analiticos caen en el mismo orden que el
-   FD (mismas unidades, misma normalizacion). El overlay a magnitud real
-   (crb_regions_analytic_vs_fd.png) muestra elipses de tamano comparable, a
-   diferencia de la version antigua con ganancia G=1e5 y rejilla 8x8 propia.
-   El pequeno residual proviene de la faceta puntual (area unica w*h en el
-   centroide z=h/2) frente al render de malla, y del suavizado finito; al
-   bajar tau, 1/beta, 1/kappa la CRB analitica converge hacia la FD.
+1) Escala vs sesgo: sigma_rho y sigma_phi analiticos caen en el mismo orden
+   que el FD (overlay a magnitud real, crb_regions_analytic_vs_fd.png). Sin
+   embargo persiste un SESGO DE CUADRATURA PUNTUAL sistematico: la radiometria
+   se evalua en UN solo punto (el centroide, con area w*h) en vez de sumarse
+   sobre la malla. Eso SOBREESTIMA la intensidad ~1.5x, dominado por la
+   OCLUSION (el centroide puede estar visible mientras parte de la faceta real
+   de 0.5x1 m esta ocluida), mas la no-linealidad de 1/d2^2 y de los cosenos
+   sobre la faceta extendida. Por eso sigma_phi_analitico/FD baja hasta ~0.57.
 
-2) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS
+2) OJO -- NO hay convergencia a la FD al endurecer el suavizado. Al llevar
+   tau->0, kappa,beta->inf esta variante converge a su PROPIO forward DURO de
+   faceta PUNTUAL (comprobado: L1 15.9% -> 0.34% respecto al duro puntual),
+   NO al forward de malla del simulador. El sesgo de cuadratura es sistematico
+   y NO desaparece endureciendo: la unica correccion es sumar sobre la malla
+   (rama a+b+c). (Afirmar 'converge hacia la FD' era incorrecto.)
+
+3) Suavizado generico (kappa, tau): esta rama usa anchos genericos no atados a
+   la discretizacion del simulador -- tau=Delta_t y kappa=60 => penumbra ~1/kappa
+   = 1.67 cm ~ 4.3 pixeles (pixel_pitch=0.25/64=0.39 cm). Son MAS GRUESOS que la
+   discretizacion del simulador, asi que parte del desajuste de FORMA (aspecto
+   medio 9.36 vs FD 8.22) viene de ahi, ademas del sesgo puntual. La rama a+b+c
+   ata los anchos a la discretizacion (kappa=256=1/pixel, tau=Delta_t/sqrt(12)).
+
+4) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS
    (sympy), C-infinito por construccion. El Jacobiano FD del rasterizador se
-   calcula sobre un forward con escalones: la cuantizacion temporal ceil(.) y
-   la mascara de ocultamiento xint>0 son constantes-a-trozos, de modo que la
-   diferencia finita mezcla mesetas planas (derivada 0) con saltos de bin,
-   introduciendo ruido de discretizacion y sensibilidad al paso delta. La
-   elipse analitica es por tanto la mejor CONDICIONADA (Fisher mas estable).
+   calcula sobre un forward con escalones (ceil(.) y xint>0 constantes-a-trozos),
+   mezclando mesetas planas y saltos de bin (ruido de discretizacion, dependencia
+   del paso delta). La elipse analitica es la mejor CONDICIONADA.
 
-3) Forma/orientacion: ambos metodos producen elipses (burbujas) finas en
-   angulo -- la resolucion azimutal que aporta la arista ocluyente -- y mas
-   anchas en rango, coherente con la fisica del borde. La orientacion
-   (columna tilt) es consistente entre metodos salvo el ruido FD.
-
-VEREDICTO: la elipse ANALITICA es ahora comparable en MAGNITUD con la FD y,
-por sus derivadas exactas, mejor condicionada; el FD sigue siendo util como
-verificacion independiente y como el modelo de malla completo.
+VEREDICTO: (a)+(b) ARREGLA la escala (unidades fisicas correctas), pero deja un
+sesgo de cuadratura puntual sistematico que NO se corrige endureciendo el
+suavizado; la correccion es la suma sobre malla (a+b+c). El FD sigue siendo la
+referencia (modelo de malla completo).
