@@ -145,7 +145,7 @@ class ForwardConfig:
     # densification: subdivide the raw quad (2 tris) this many times to
     # approximate the simulator's surface integral (2 -> 8 -> 32 -> 128 -> 512
     # -> 2048 ...).  Two quantities converge at DIFFERENT rates: the forward
-    # ENERGY converges by ~128 triangles (0.11% between 128 and 2048), but the CRB
+    # ENERGY converges by ~128 triangles (~0.1% between 128 and 2048), but the CRB
     # sigmas -- which depend on DERIVATIVES of the surface integral -- need more:
     # sigma_rho still moves +6.9% from 128->512 and only +0.37% from 512->2048.
     # So 512 (subdiv 4) is the first comfortably-converged level (512->2048
