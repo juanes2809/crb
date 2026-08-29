@@ -52,6 +52,14 @@ FD_CACHE = PLOTS / "crb_grid_results.pkl"
 FD_CACHE_FALLBACK = Path("/workspace/plots/crb_grid_results.pkl")
 ANALYTIC_CACHE = PLOTS / "crb_grid_results_analytic.pkl"
 
+# Configuration fingerprint for the analytic cache.  The three branches
+# (a+b, a+b+c mesh-sum, ...) SHARE the same cache filename for DIFFERENT forward
+# models, so a bare filename check would silently reuse a stale grid.  We stamp
+# the pickle with the ForwardConfig structural key plus a branch label and force
+# a recompute when it does not match on load.
+CONFIG_LABEL = "pr3-ab"
+CONFIG_KEY = (CONFIG_LABEL, ForwardConfig().as_key())
+
 
 # ---------------------------------------------------------------------------
 # Part (1): analytic grid
@@ -85,17 +93,29 @@ def build_or_load_analytic() -> Dict[str, List[Dict[str, Any]]]:
     if ANALYTIC_CACHE.exists():
         with open(ANALYTIC_CACHE, "rb") as f:
             cache = pickle.load(f)
-        if "fixed_h" in cache and "with_h" in cache:
-            print(f"Reusing analytic cache {ANALYTIC_CACHE.name}")
+        has_grids = "fixed_h" in cache and "with_h" in cache
+        key_ok = cache.get("config_key") == CONFIG_KEY
+        if has_grids and key_ok:
+            print(f"Reusing analytic cache {ANALYTIC_CACHE.name} "
+                  f"(config_key matches '{CONFIG_LABEL}')")
             return cache
+        reason = (
+            "missing fixed_h/with_h grids" if not has_grids
+            else f"config_key mismatch (cache={cache.get('config_key')!r}, "
+                 f"expected label '{CONFIG_LABEL}')"
+        )
+        print(f"Recomputing analytic grids: {reason}. "
+              "The three branches share this filename for different models.")
     print("Computing analytic grids (fixed_h, with_h) ...")
     cache = {
+        "config_key": CONFIG_KEY,
         "fixed_h": compute_analytic_grid(estimate_height=False),
         "with_h": compute_analytic_grid(estimate_height=True),
     }
     with open(ANALYTIC_CACHE, "wb") as f:
         pickle.dump(cache, f)
-    print(f"Saved analytic grids to {ANALYTIC_CACHE} (not committed).")
+    print(f"Saved analytic grids to {ANALYTIC_CACHE} "
+          f"(config_key='{CONFIG_LABEL}', not committed).")
     return cache
 
 
@@ -262,18 +282,32 @@ def write_comparison_table(
     lines.append(f"Comparacion CRB analitico vs FD (rasterizado)  --  grid {grid_label}")
     lines.append("=" * 118)
     lines.append(
-        "NOTA: con la variante (a)+(b) la amplitud es fisica (I_laser=1000, area_eff=w*h)"
+        "NOTA: la variante (a)+(b) pone la ESCALA FISICA correcta (I_laser=1000, area_eff=w*h,"
     )
     lines.append(
-        "y la rejilla es la del simulador (64x64, bin real), de modo que las magnitudes"
+        "rejilla del simulador 64x64/bin real), asi que sigma_rho, sigma_phi estan en las MISMAS"
     )
     lines.append(
-        "absolutas SI son comparables: sigma_rho, sigma_phi quedan en la misma escala que"
+        "UNIDADES que el FD. PERO subsiste un SESGO DE CUADRATURA PUNTUAL sistematico: evaluar la"
     )
     lines.append(
-        "el FD (faceta puntual vs render de malla). Ademas se compara la FORMA: relacion de"
+        "radiometria en un solo punto (centroide, area w*h) sobreestima la intensidad ~1.5x frente"
     )
-    lines.append("aspecto (aspect = eje_mayor/eje_menor) y tilt de la elipse 3-sigma en (rho,phi).")
+    lines.append(
+        "a la suma sobre malla (dominado por oclusion: el centroide es visible cuando parte de la"
+    )
+    lines.append(
+        "faceta real esta ocluida; mas 1/d2^2 y cosenos no lineales sobre 0.5x1 m). Ese sesgo NO"
+    )
+    lines.append(
+        "desaparece al endurecer el suavizado (esta variante converge a su PROPIO forward duro"
+    )
+    lines.append(
+        "puntual, no al de malla); por eso sigma_phi_analitico/FD baja hasta ~0.57. La correccion"
+    )
+    lines.append(
+        "es la suma sobre malla (rama a+b+c). Se compara tambien la FORMA (aspect, tilt)."
+    )
     lines.append("=" * 118)
     header = (
         f"{'rho':>4} {'phi':>4} | "
@@ -369,8 +403,10 @@ def write_latex_table(
         "\\begin{table}[ht]\n\\centering\\small\n"
         "\\caption{CRB anal\\'itico vs FD sobre el grid " + grid_tag + ". "
         "$\\sigma_\\rho$ en m, $\\sigma_\\varphi$ en grados; \\emph{asp}$=$eje mayor/menor "
-        "de la elipse $3\\sigma$ en $(\\rho,\\varphi)$. Con amplitud f\\'isica (variante (a)+(b)) "
-        "las magnitudes absolutas son comparables entre m\\'etodos.}\n"
+        "de la elipse $3\\sigma$ en $(\\rho,\\varphi)$. La variante (a)+(b) pone la escala "
+        "f\\'isica correcta (mismas unidades), pero el forward de faceta \\emph{puntual} "
+        "conserva un sesgo de cuadratura sistem\\'atico ($\\sigma_\\varphi$ anal./FD $\\sim0.57$) "
+        "que no desaparece al endurecer el suavizado; la correcci\\'on es la suma sobre malla (a+b+c).}\n"
         "\\label{tab:avf}\n"
         "\\begin{tabular}{@{}rr|rrr|rrr@{}}\n\\toprule\n"
         " & & \\multicolumn{3}{c|}{Anal\\'itico} & \\multicolumn{3}{c}{FD (rasterizado)} \\\\\n"
@@ -384,32 +420,42 @@ def write_latex_table(
 
 def conclusion_text(have_fd: bool) -> str:
     base = (
-        "CONCLUSION -- magnitud y forma\n"
-        "------------------------------\n"
+        "CONCLUSION -- escala fisica correcta, pero sesgo de cuadratura puntual\n"
+        "---------------------------------------------------------------------\n"
         "Con la variante (a)+(b) el forward analitico usa la amplitud fisica del\n"
         "simulador (I_laser=1000, area_eff=w*h) y su misma rejilla (64x64, bin real),\n"
-        "de modo que la CRB analitica y la FD quedan en la MISMA escala fisica.\n\n"
-        "1) Magnitud: sigma_rho y sigma_phi analiticos caen en el mismo orden que el\n"
-        "   FD (mismas unidades, misma normalizacion). El overlay a magnitud real\n"
-        "   (crb_regions_analytic_vs_fd.png) muestra elipses de tamano comparable, a\n"
-        "   diferencia de la version antigua con ganancia G=1e5 y rejilla 8x8 propia.\n"
-        "   El pequeno residual proviene de la faceta puntual (area unica w*h en el\n"
-        "   centroide z=h/2) frente al render de malla, y del suavizado finito; al\n"
-        "   bajar tau, 1/beta, 1/kappa la CRB analitica converge hacia la FD.\n\n"
-        "2) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS\n"
+        "de modo que la CRB analitica y la FD quedan en las MISMAS UNIDADES / la misma\n"
+        "escala fisica. Eso corrige el defecto de la version antigua (ganancia G=1e5 y\n"
+        "rejilla 8x8 propias, escalas arbitrarias). PERO no las vuelve iguales.\n\n"
+        "1) Escala vs sesgo: sigma_rho y sigma_phi analiticos caen en el mismo orden\n"
+        "   que el FD (overlay a magnitud real, crb_regions_analytic_vs_fd.png). Sin\n"
+        "   embargo persiste un SESGO DE CUADRATURA PUNTUAL sistematico: la radiometria\n"
+        "   se evalua en UN solo punto (el centroide, con area w*h) en vez de sumarse\n"
+        "   sobre la malla. Eso SOBREESTIMA la intensidad ~1.5x, dominado por la\n"
+        "   OCLUSION (el centroide puede estar visible mientras parte de la faceta real\n"
+        "   de 0.5x1 m esta ocluida), mas la no-linealidad de 1/d2^2 y de los cosenos\n"
+        "   sobre la faceta extendida. Por eso sigma_phi_analitico/FD baja hasta ~0.57.\n\n"
+        "2) OJO -- NO hay convergencia a la FD al endurecer el suavizado. Al llevar\n"
+        "   tau->0, kappa,beta->inf esta variante converge a su PROPIO forward DURO de\n"
+        "   faceta PUNTUAL (comprobado: L1 15.9% -> 0.34% respecto al duro puntual),\n"
+        "   NO al forward de malla del simulador. El sesgo de cuadratura es sistematico\n"
+        "   y NO desaparece endureciendo: la unica correccion es sumar sobre la malla\n"
+        "   (rama a+b+c). (Afirmar 'converge hacia la FD' era incorrecto.)\n\n"
+        "3) Suavizado generico (kappa, tau): esta rama usa anchos genericos no atados a\n"
+        "   la discretizacion del simulador -- tau=Delta_t y kappa=60 => penumbra ~1/kappa\n"
+        "   = 1.67 cm ~ 4.3 pixeles (pixel_pitch=0.25/64=0.39 cm). Son MAS GRUESOS que la\n"
+        "   discretizacion del simulador, asi que parte del desajuste de FORMA (aspecto\n"
+        "   medio 9.36 vs FD 8.22) viene de ahi, ademas del sesgo puntual. La rama a+b+c\n"
+        "   ata los anchos a la discretizacion (kappa=256=1/pixel, tau=Delta_t/sqrt(12)).\n\n"
+        "4) Suavidad / condicionamiento: el forward analitico tiene derivadas EXACTAS\n"
         "   (sympy), C-infinito por construccion. El Jacobiano FD del rasterizador se\n"
-        "   calcula sobre un forward con escalones: la cuantizacion temporal ceil(.) y\n"
-        "   la mascara de ocultamiento xint>0 son constantes-a-trozos, de modo que la\n"
-        "   diferencia finita mezcla mesetas planas (derivada 0) con saltos de bin,\n"
-        "   introduciendo ruido de discretizacion y sensibilidad al paso delta. La\n"
-        "   elipse analitica es por tanto la mejor CONDICIONADA (Fisher mas estable).\n\n"
-        "3) Forma/orientacion: ambos metodos producen elipses (burbujas) finas en\n"
-        "   angulo -- la resolucion azimutal que aporta la arista ocluyente -- y mas\n"
-        "   anchas en rango, coherente con la fisica del borde. La orientacion\n"
-        "   (columna tilt) es consistente entre metodos salvo el ruido FD.\n\n"
-        "VEREDICTO: la elipse ANALITICA es ahora comparable en MAGNITUD con la FD y,\n"
-        "por sus derivadas exactas, mejor condicionada; el FD sigue siendo util como\n"
-        "verificacion independiente y como el modelo de malla completo."
+        "   calcula sobre un forward con escalones (ceil(.) y xint>0 constantes-a-trozos),\n"
+        "   mezclando mesetas planas y saltos de bin (ruido de discretizacion, dependencia\n"
+        "   del paso delta). La elipse analitica es la mejor CONDICIONADA.\n\n"
+        "VEREDICTO: (a)+(b) ARREGLA la escala (unidades fisicas correctas), pero deja un\n"
+        "sesgo de cuadratura puntual sistematico que NO se corrige endureciendo el\n"
+        "suavizado; la correccion es la suma sobre malla (a+b+c). El FD sigue siendo la\n"
+        "referencia (modelo de malla completo)."
     )
     if not have_fd:
         base = (
