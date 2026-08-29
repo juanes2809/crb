@@ -48,6 +48,16 @@ ANGLES_DEG = [30, 60, 90, 120, 150]
 FD_CACHE = PLOTS / "crb_grid_results.pkl"
 ANALYTIC_CACHE = PLOTS / "crb_grid_results_analytic.pkl"
 
+# Variant label + config fingerprint.  The three analytic-forward branches
+# (base / a+b / a+b+c) reuse the SAME cache filename for DIFFERENT models, so we
+# stamp the pkl with a config key and refuse to reuse a mismatched cache.
+VARIANT_TAG = "pr2-base"
+
+
+def _analytic_config_key() -> tuple:
+    """Fingerprint of the analytic model that produced a cache."""
+    return (VARIANT_TAG, ForwardConfig().as_key())
+
 
 # ---------------------------------------------------------------------------
 # Part (1): analytic grid
@@ -78,20 +88,38 @@ def compute_analytic_grid(
 
 
 def build_or_load_analytic() -> Dict[str, List[Dict[str, Any]]]:
+    want_key = _analytic_config_key()
     if ANALYTIC_CACHE.exists():
         with open(ANALYTIC_CACHE, "rb") as f:
             cache = pickle.load(f)
-        if "fixed_h" in cache and "with_h" in cache:
-            print(f"Reusing analytic cache {ANALYTIC_CACHE.name}")
+        have_grids = "fixed_h" in cache and "with_h" in cache
+        have_key = cache.get("config_key")
+        if have_grids and have_key == want_key:
+            print(f"Reusing analytic cache {ANALYTIC_CACHE.name} "
+                  f"(config_key matches {VARIANT_TAG}).")
             return cache
+        # Mismatch (or legacy cache with no config_key): recompute rather than
+        # silently plotting a stale/foreign model.
+        if not have_key:
+            reason = "no 'config_key' (legacy cache)"
+        elif not have_grids:
+            reason = "missing fixed_h/with_h grids"
+        else:
+            reason = (f"config_key mismatch (cache={have_key!r} != "
+                      f"expected {want_key!r})")
+        print(f"Recomputing analytic grids: {ANALYTIC_CACHE.name} {reason}. "
+              f"The three analytic-forward branches share this filename for "
+              f"different models, so a mismatched cache is NOT reused.")
     print("Computing analytic grids (fixed_h, with_h) ...")
     cache = {
+        "config_key": want_key,
         "fixed_h": compute_analytic_grid(estimate_height=False),
         "with_h": compute_analytic_grid(estimate_height=True),
     }
     with open(ANALYTIC_CACHE, "wb") as f:
         pickle.dump(cache, f)
-    print(f"Saved analytic grids to {ANALYTIC_CACHE} (not committed).")
+    print(f"Saved analytic grids to {ANALYTIC_CACHE} "
+          f"(config_key={VARIANT_TAG}, not committed).")
     return cache
 
 
