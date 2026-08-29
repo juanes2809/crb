@@ -95,9 +95,14 @@ suaves'' ---; la Sec.~\ref{sec:que-entra} aclara qu\'e entra al CRB y por qu\'e 
 uso es leg\'itimo. Adem\'as, con \textbf{amplitud f\'isica} (\'area
 $w\!\cdot\!h$ e \texttt{laser\_intensity} reales) y la \textbf{misma rejilla}
 $64\times64$ y \texttt{bin\_size} del simulador, el CRB anal\'itico y el de la
-ruta FD quedan en la \textbf{misma escala} y son comparables en magnitud
-(convergen al bajar el suavizado), a diferencia de la versi\'on previa con
-ganancia y rejilla propias.
+ruta FD quedan en las \textbf{mismas unidades} / la misma escala f\'isica, a
+diferencia de la versi\'on previa con ganancia y rejilla propias. \textbf{Ahora
+bien}, esta variante \emph{no} converge a la FD: al ser una \textbf{cuadratura de
+un solo punto} (radiometr\'ia en el centroide, \'area $w h$) mantiene un
+\textbf{sesgo sistem\'atico} (sobreestima la intensidad $\sim1.5\times$, dominado
+por la oclusi\'on de la faceta extendida) que \textbf{no desaparece} al endurecer
+el suavizado --- al hacerlo converge a su \emph{propio} forward duro puntual, no
+al de malla. La correcci\'on es la \textbf{suma sobre malla} (rama (a)+(b)+(c)).
 \end{abstract}
 
 \tableofcontents
@@ -415,8 +420,15 @@ $\kappa\to\infty$ (con convergencia uniforme fuera de una capa de ancho
 $\sim1/\kappa$, Prop.~\ref{prop:sigmoid}); y (4) tiene \textbf{derivada simple}
 $\sigma'=\kappa\,\sigma(1-\sigma)$. El par\'ametro $\kappa$ es el ancho de
 \emph{penumbra}: la transici\'on sombra$\to$luz ocurre en una banda de
-semi-anchura $\sim1/\kappa$ (metros). Por defecto $\kappa=60$ (penumbra
-$\sim1.7$\,cm, comparable al tama\~no de p\'ixel).
+semi-anchura $\sim1/\kappa$ (metros). Por defecto $\kappa=60$, i.e.\ penumbra
+$\sim1/\kappa=1.67$\,cm. \textbf{Advertencia:} con la rejilla del simulador el
+paso de p\'ixel es $0.25/64=0.39$\,cm, de modo que esa penumbra abarca
+$\sim4.3$ p\'ixeles: es un ancho \textbf{gen\'erico, m\'as grueso} que la
+discretizaci\'on real. Este es un suavizado deliberadamente conservador de la
+rama (a)+(b); parte del desajuste de \emph{forma} con el FD proviene de aqu\'i
+(Sec.~\ref{sec:resultados}). La rama (a)+(b)+(c) ata los anchos a la
+discretizaci\'on: $\kappa=256$ ($1/\kappa=$ un p\'ixel) y $\tau=\Delta t/\sqrt{12}$
+(desviaci\'on de un bin uniforme).
 
 \begin{figure}[ht]
 \centering
@@ -529,12 +541,20 @@ modo que usamos una \textbf{\'unica \'area f\'isica} $A_{\mathrm{eff}}=w\,h$ (co
 $w=0.5$\,m fijo y $h$ el par\'ametro de altura) y la \textbf{intensidad real} del
 simulador $I_{\mathrm{laser}}=1000$; ya \textbf{no} hay ganancia arbitraria $G$
 ($\alpha$ es un albedo opcional fijado a $1$). Esto es la \textbf{variante (a)}:
-reproduce la \emph{magnitud} del rasterizador a primer orden --- la amplitud
-escala con $h$ como lo hace la malla --- de modo que el CRB anal\'itico y el FD
-quedan en la \textbf{misma escala f\'isica} (Sec.~\ref{sec:resultados}). El
-residual proviene de la faceta puntual (\'area \'unica en el centroide $z=h/2$)
-frente al render de malla y del suavizado finito; al bajar $\tau,1/\beta,1/\kappa$
-la CRB anal\'itica converge hacia la FD.
+pone la \emph{escala f\'isica correcta} (unidades del rasterizador) --- la
+amplitud escala con $h$ como lo hace la malla --- de modo que el CRB anal\'itico y
+el FD quedan en las \textbf{mismas unidades} (Sec.~\ref{sec:resultados}).
+\textbf{Pero no coinciden}: usar una \'unica evaluaci\'on en el centroide es una
+\textbf{cuadratura de un punto} de la integral de malla, y su error es
+\textbf{sistem\'atico}, no un residual que se anule al afinar el suavizado. En
+concreto, la faceta real de $0.5\times1$\,m tiene una parte \emph{ocluida} para
+muchos p\'ixeles mientras su centroide sigue siendo visible, de modo que el punto
+\textbf{sobreestima} la energ\'ia ($\sim1.5\times$ frente a la suma de malla;
+tambi\'en por la no linealidad de $1/d_2^2$ y de los cuatro cosenos sobre la
+faceta extendida). Al endurecer ($\tau\to0$, $\beta,\kappa\to\infty$) esta
+variante converge a su \textbf{propio} forward duro \emph{puntual}, \textbf{no} al
+de malla del simulador. La correcci\'on de este sesgo es la \textbf{suma sobre
+malla} (rama (a)+(b)+(c)), no reducir el suavizado.
 \end{remark}
 
 El fondo $b>0$ mantiene $1/g_q$ finito \textbf{sin} piso $\varepsilon$ artificial.
@@ -1025,12 +1045,14 @@ $\varepsilon$ ni l\'imites $g\to0$.
 \label{sec:consistencia}
 %------------------------------------------------------------------------------
 
-\begin{proposition}[Convergencia al forward duro del simulador]\label{prop:consistencia}
+\begin{proposition}[Convergencia al forward duro \emph{de faceta puntual}]\label{prop:consistencia}
 Fijado $\vect{\psi}\in\Theta$ con $t_{0,i}(\vect{\psi})\notin\{t_{j-1},t_j\}$ (no
 sobre isocrona) y $e_i(\vect{\psi})\neq0$ (fuera de la frontera $\texttt{xint}=0$)
 para todo $i$, se cumple, cuando $\tau\to0^+,\kappa\to\infty,\beta\to\infty$,
-$g^{\tau,\kappa,\beta}_q(\vect{\psi})\to g^{\mathrm{hard}}_q(\vect{\psi})$. La
-convergencia es puntual en c.t.\ $\vect{\psi}$ (el conjunto excluido, uni\'on
+$g^{\tau,\kappa,\beta}_q(\vect{\psi})\to g^{\mathrm{hard}}_q(\vect{\psi})$, donde
+$g^{\mathrm{hard}}_q$ es el forward \textbf{duro de faceta puntual}
+\eqref{eq:hard} (una \'unica evaluaci\'on en el centroide, \'area $w h$).
+La convergencia es puntual en c.t.\ $\vect{\psi}$ (el conjunto excluido, uni\'on
 finita de isocronas y fronteras --- hipersuperficies por el
 Teorema~\ref{thm:ift} --- tiene medida nula).
 \end{proposition}
@@ -1042,6 +1064,40 @@ $e_i\neq0$ (Prop.~\ref{prop:sigmoid}); y $S_{ij}\to\mathbf
 (Teorema~\ref{thm:mollifier}). El producto de los l\'imites es
 $g^{\mathrm{hard}}_q$.
 \end{proof}
+
+\begin{remark}[El l\'imite duro \emph{no} es el rasterizador de malla: sesgo de cuadratura]
+\label{rem:cuadratura}
+La Prop.~\ref{prop:consistencia} dice que al endurecer se recupera el forward duro
+\textbf{de faceta puntual}, \textbf{no} el forward de \emph{malla}
+$g_{\mathrm{sim}}$ del simulador. La diferencia es un \textbf{error de cuadratura}:
+$g_{\mathrm{sim}}$ es la \emph{suma} de la radiometr\'ia sobre los tri\'angulos que
+teselan la faceta de $0.5\times1$\,m,
+\[
+    g_{\mathrm{sim}}\;=\;\sum_{\triangle} I_{\mathrm{laser}}\,A_\triangle\,
+    \frac{\prod_k[\,\cdot\,]_+}{4\pi^2 d_{1}^2 d_{2}^2}\Big|_{\triangle},
+    \qquad
+    g^{\mathrm{hard}}_{\mathrm{an}}\;=\;I_{\mathrm{laser}}\,(w h)\,
+    \frac{\prod_k[\,\cdot\,]_+}{4\pi^2 d_1^2 d_2^2}\Big|_{\text{centroide}},
+\]
+i.e.\ la regla del \textbf{punto medio con un solo nodo}. Ese estimador tiene un
+\textbf{sesgo sistem\'atico} (no un residual que se anule con $\tau,1/\kappa,1/\beta$):
+\begin{itemize}[nosep]
+    \item \textbf{Oclusi\'on (dominante):} para muchos p\'ixeles una parte de la
+    faceta real est\'a ocluida (\texttt{xint}$<0$) mientras su \emph{centroide}
+    sigue visible; la cuadratura de un punto cuenta \emph{toda} el \'area $w h$ y
+    \textbf{sobreestima}.
+    \item \textbf{No linealidad:} $1/d_2^2$ y los cuatro cosenos var\'ian sobre la
+    faceta, as\'i que su valor en el centroide $\neq$ su promedio (desigualdad de
+    Jensen). El efecto neto medido es una sobreestimaci\'on de la intensidad
+    $\sim1.5\times$, que se traduce en un CRB anal\'itico \emph{menor} que el FD
+    ($\sigma_\varphi$ anal./FD hasta $\sim0.57$).
+\end{itemize}
+Verificaci\'on num\'erica: al endurecer, $g^{\tau,\kappa,\beta}_{\mathrm{an}}$ se
+acerca a $g^{\mathrm{hard}}_{\mathrm{an}}$ (error $L^1$ $15.9\%\to0.34\%$), pero
+\emph{no} a $g_{\mathrm{sim}}$. La \'unica correcci\'on del sesgo es sustituir la
+cuadratura de un punto por la \textbf{suma sobre malla} (rama (a)+(b)+(c)); reducir
+el suavizado \textbf{no} lo elimina.
+\end{remark}
 
 \paragraph{Cotas de error.} El sesgo de cada suavizado est\'a controlado: los
 \emph{clamps} por $\log2/\beta$ (uniforme, Prop.~\ref{prop:softplus}); el
@@ -1193,36 +1249,43 @@ la \emph{f\'isica}/\emph{radiometr\'ia} que modelan, la \emph{rejilla} y la
     derivables (Obs.~\ref{rem:tres}).
     \item \textbf{Misma estructura estad\'istica} Poisson--Fisher: id\'entica
     f\'ormula de $\matr I$ y CRB \eqref{eq:fisher}--\eqref{eq:crb}.
-    \item \textbf{Consistencia:} $g_{\mathrm{an}}\to g_{\mathrm{sim}}$ cuando
-    $\tau\to0$, $\kappa,\beta\to\infty$ (Prop.~\ref{prop:consistencia}), con la
-    masa conservada $\sum_j S_j=1$ para todo $\tau$
-    (Fig.~\ref{fig:smooth-binning}(b)); en el l\'imite es el \emph{mismo} modelo,
-    y con suavizado finito es f\'isicamente razonable (pulso real de ancho finito,
-    penumbra real).
+    \item \textbf{Consistencia (con matiz importante):} cuando $\tau\to0$,
+    $\kappa,\beta\to\infty$, $g_{\mathrm{an}}$ converge a su \textbf{propio forward
+    duro de faceta puntual} $g^{\mathrm{hard}}_{\mathrm{an}}$
+    (Prop.~\ref{prop:consistencia}), con la masa conservada $\sum_j S_j=1$ para
+    todo $\tau$ (Fig.~\ref{fig:smooth-binning}(b)). \textbf{No} converge al forward
+    de \emph{malla} $g_{\mathrm{sim}}$: la diferencia entre
+    $g^{\mathrm{hard}}_{\mathrm{an}}$ (una evaluaci\'on en el centroide, \'area
+    $w h$) y $g_{\mathrm{sim}}$ (suma sobre tri\'angulos) es un \textbf{sesgo de
+    cuadratura sistem\'atico}, no un t\'ermino de suavizado. Endurecer solo elimina
+    el suavizado, no el sesgo (v\'ease Obs.~\ref{rem:cuadratura}).
     \item \textbf{Beneficio:} derivadas \textbf{exactas} y Fisher mejor
     condicionada, sin el ruido de discretizaci\'on ni la dependencia del paso
     $\delta$ de las diferencias finitas (Sec.~\ref{sec:diagnostico},
     Prop.~\ref{prop:fd}).
-    \item \textbf{Salvedades (honestas):} con la variante (a)+(b) la
-    \emph{magnitud} del CRB \textbf{s\'i} es comparable con la del simulador ---
-    misma amplitud f\'isica ($I_{\mathrm{laser}}\!\cdot\!w h$, Obs.~\ref{rem:area})
-    y misma rejilla $64\times64$/\texttt{bin} real ---, de modo que ambas elipses
-    quedan en la \textbf{misma escala} (Sec.~\ref{sec:resultados}). Quedan como
-    idealizaciones la \textbf{faceta puntual} (\'area \'unica $w h$ en el centroide
-    $z=h/2$, en vez del render de malla) y los par\'ametros de suavizado
-    $\tau,\kappa,\beta$; por eso el ajuste no es exacto sino \emph{convergente}
-    (al bajar el suavizado). La comparaci\'on con la ruta FD ahora abarca tanto la
-    \textbf{magnitud} como la \textbf{forma/orientaci\'on} de las elipses.
+    \item \textbf{Salvedades (honestas):} con la variante (a)+(b) el CRB queda en
+    las \textbf{mismas unidades} que el simulador --- misma amplitud f\'isica
+    ($I_{\mathrm{laser}}\!\cdot\!w h$, Obs.~\ref{rem:area}) y misma rejilla
+    $64\times64$/\texttt{bin} real ---, lo que \textbf{corrige la escala}. Pero
+    \textbf{no} las vuelve iguales: la \textbf{faceta puntual} (\'area \'unica $w h$
+    en el centroide $z=h/2$) es una \textbf{cuadratura de un punto} de la integral
+    de malla, con un \textbf{sesgo sistem\'atico} (sobreestima $\sim1.5\times$,
+    dominado por oclusi\'on) que \textbf{no} desaparece al endurecer el suavizado
+    (Obs.~\ref{rem:cuadratura}). Adem\'as los anchos $\tau,\kappa$ son gen\'ericos y
+    m\'as gruesos que la discretizaci\'on (penumbra $\sim4.3$ p\'ixeles), lo que
+    a\~nade desajuste de \emph{forma}. La correcci\'on de ambos es la rama
+    (a)+(b)+(c) (suma sobre malla y anchos atados a la discretizaci\'on).
 \end{itemize}
 
 \paragraph{5. Relaci\'on con la ruta FD.} La CRB-FD \emph{s\'i} usa el simulador
 (deriv\'andolo por diferencias finitas); la CRB anal\'itica es \textbf{independiente}
-de \'el. Que ahora coincidan tanto la \emph{magnitud} como la \emph{forma} de las
-elipses entre ambas rutas (Sec.~\ref{sec:resultados}) es justamente lo que
-\textbf{valida} la f\'isica y la geometr\'ia del modelo anal\'itico: dos
-derivaciones distintas del mismo fen\'omeno llegan a la misma estructura de
-incertidumbre y a la misma escala, una con derivadas exactas y otra con el render
-de malla completo.
+de \'el. Con (a)+(b) ambas quedan en la \textbf{misma escala f\'isica} y la
+\emph{orientaci\'on} de las elipses concuerda, lo que valida la geometr\'ia del
+modelo. Lo que \textbf{no} coincide es el \emph{tama\~no}: el CRB anal\'itico es
+sistem\'aticamente menor ($\sigma_\varphi$ anal./FD hasta $\sim0.57$) por el sesgo
+de cuadratura puntual (Obs.~\ref{rem:cuadratura}), un desfase que \textbf{no} se
+cierra endureciendo el suavizado sino \textbf{sumando sobre malla} (rama
+(a)+(b)+(c)).
 
 %==============================================================================
 \section{Validaci\'on: anal\'itico contra diferencias finitas}
@@ -1275,13 +1338,16 @@ $\sigma_\varphi\approx1.42^\circ$ en \emph{fixed\_h}).
 
 \begin{remark}[Qu\'e valida y qu\'e no]
 Esta prueba certifica que la \textbf{derivada cerrada es exacta} para el forward
-suave del simulador (dos rebotes, cuatro cosenos, $4\pi^2$). Con la variante
-(a)+(b) el modelo anal\'itico de faceta puntual usa adem\'as la \emph{misma}
-amplitud f\'isica ($I_{\mathrm{laser}}\!\cdot\!w h$, Obs.~\ref{rem:area}) y la
-\emph{misma} rejilla $64\times64$/\texttt{bin} real, de modo que su CRB queda en
-la \textbf{misma escala} que el rasterizador (el residual restante es la
-idealizaci\'on de faceta puntual y el suavizado finito). Lo que compartimos es la
-\emph{f\'isica}, la \emph{rejilla} y la \emph{estructura} Fisher--Poisson.
+suave de faceta puntual (dos rebotes, cuatro cosenos, $4\pi^2$): es un chequeo
+anal\'itico-vs-FD del \emph{mismo} modelo, no una comparaci\'on contra la malla.
+Con la variante (a)+(b) ese modelo usa la \emph{misma} amplitud f\'isica
+($I_{\mathrm{laser}}\!\cdot\!w h$, Obs.~\ref{rem:area}) y la \emph{misma} rejilla
+$64\times64$/\texttt{bin} real, de modo que su CRB queda en las \textbf{mismas
+unidades} que el rasterizador. \textbf{No} implica que coincidan en magnitud: la
+faceta puntual mantiene un \textbf{sesgo de cuadratura sistem\'atico}
+(Obs.~\ref{rem:cuadratura}) que hace el CRB anal\'itico menor que el FD y que
+\textbf{no} se corrige endureciendo. Lo que compartimos es la \emph{f\'isica}, la
+\emph{rejilla} y la \emph{estructura} Fisher--Poisson.
 \end{remark}
 
 %==============================================================================
@@ -1326,19 +1392,25 @@ modo que la comparaci\'on de \textbf{magnitud} (y de forma) es leg\'itima: ambas
 rutas comparten normalizaci\'on y rejilla.
 \end{remark}
 
-\begin{remark}[Escalas ahora comparables (variante (a)+(b))]
+\begin{remark}[Misma escala f\'isica, pero sesgo de cuadratura sistem\'atico]
 Con la amplitud f\'isica ($I_{\mathrm{laser}}=1000$, \'area $A_{\mathrm{eff}}=w h$,
 Obs.~\ref{rem:area}) y la misma rejilla $64\times64$/\texttt{bin} real del
-simulador, las \textbf{magnitudes absolutas} del CRB anal\'itico y del FD
-\textbf{s\'i} son comparables: caen en el mismo orden y las elipses $3\sigma$
-casi se superponen a \emph{magnitud real} (Fig.~\ref{fig:avf-abs}). Sobre el grid
-\emph{fixed\_h}, el anal\'itico da $\sim0.5$--$0.7\times$ la $\sigma$ del FD (p.\,ej.\
-en $(1,90^\circ)$: $\sigma_\rho^{\mathrm{an}}=2.3\times10^{-3}$ vs
-$\sigma_\rho^{\mathrm{FD}}=4.2\times10^{-3}$\,m; $\sigma_\varphi^{\mathrm{an}}=1.1^\circ$
-vs $\sigma_\varphi^{\mathrm{FD}}=1.4^\circ$), un factor peque\~no atribuible a la
-faceta puntual y al suavizado finito. Conservamos adem\'as la superposici\'on
-\emph{normalizada en forma} (Fig.~\ref{fig:avf-shape}) como chequeo de
-orientaci\'on y aspecto.
+simulador, el CRB anal\'itico y el FD quedan en las \textbf{mismas unidades} / la
+misma escala f\'isica --- esto corrige el defecto de la versi\'on previa (ganancia
+$G$ y rejilla $8\times8$ arbitrarias). \textbf{Pero no coinciden en tama\~no}:
+sobre el grid \emph{fixed\_h} el anal\'itico da $\sim0.5$--$0.7\times$ la $\sigma$
+del FD (p.\,ej.\ en $(1,90^\circ)$:
+$\sigma_\rho^{\mathrm{an}}=2.3\times10^{-3}$ vs
+$\sigma_\rho^{\mathrm{FD}}=4.2\times10^{-3}$\,m;
+$\sigma_\varphi^{\mathrm{an}}=1.1^\circ$ vs $\sigma_\varphi^{\mathrm{FD}}=1.4^\circ$;
+la raz\'on $\sigma_\varphi^{\mathrm{an}}/\sigma_\varphi^{\mathrm{FD}}$ baja hasta
+$\sim0.57$). Ese desfase es el \textbf{sesgo de cuadratura puntual}
+(Obs.~\ref{rem:cuadratura}): la faceta puntual sobreestima la intensidad
+$\sim1.5\times$ (dominado por oclusi\'on) y por tanto \emph{subestima} el CRB.
+\textbf{No} se cierra endureciendo el suavizado --- eso lleva al forward duro
+\emph{puntual}, no al de malla --- sino sumando sobre malla (rama (a)+(b)+(c)).
+La superposici\'on \emph{normalizada en forma} (Fig.~\ref{fig:avf-shape}) sirve
+para comparar orientaci\'on/aspecto sin el factor de tama\~no.
 \end{remark}
 
 \begin{figure}[ht]
@@ -1348,9 +1420,12 @@ orientaci\'on y aspecto.
 }{\textit{(Pendiente: ejecutar la comparaci\'on con la cache FD disponible.)}}
 \caption{(a) Superposici\'on anal\'itico (verde, dos rebotes, amplitud f\'isica
 $I_{\mathrm{laser}}\!\cdot\!w h$, rejilla $64\times64$) vs FD (rojo) a
-\emph{magnitud real}: con la variante (a)+(b) las elipses $3\sigma$ quedan en la
-\textbf{misma escala} y casi se superponen en todo el grid $(\rho,\varphi)$.
-Archivo \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
+\emph{magnitud real}: con la variante (a)+(b) ambas elipses $3\sigma$ viven en la
+\textbf{misma escala f\'isica} y su orientaci\'on concuerda, pero la anal\'itica es
+sistem\'aticamente \textbf{m\'as peque\~na} ($\sim0.5$--$0.7\times$) por el sesgo de
+cuadratura puntual (Obs.~\ref{rem:cuadratura}); \textbf{no} coinciden en tama\~no ni
+lo har\'an al endurecer el suavizado. Archivo
+\texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
 \label{fig:avf-abs}
 \end{figure}
 
@@ -1376,14 +1451,17 @@ completa (con la inclinaci\'on \emph{tilt}) est\'a en
 con la cache FD disponible.)}}
 
 \subsection{\textup{?`}Cu\'al elipse es ``mejor''?}
-Ahora que las escalas coinciden, ``mejor'' combina \textbf{magnitud comparable},
-\textbf{calidad/suavidad de la derivada} y \textbf{sensatez de la forma}:
+Ahora que las escalas comparten unidades, ``mejor'' combina \textbf{escala
+f\'isica correcta}, \textbf{calidad/suavidad de la derivada} y \textbf{sensatez de
+la forma} --- teniendo presente el sesgo de cuadratura:
 \begin{enumerate}[nosep]
-    \item \textbf{Magnitud.} Con la variante (a)+(b) el CRB anal\'itico y el FD
-    est\'an en la \textbf{misma escala f\'isica} (mismas unidades y
-    normalizaci\'on $I_{\mathrm{laser}}\!\cdot\!w h$, misma rejilla): el anal\'itico
-    reproduce $\sim0.5$--$0.7\times$ la $\sigma$ del FD y converge hacia \'el al
-    bajar el suavizado (Fig.~\ref{fig:avf-abs}).
+    \item \textbf{Escala (no magnitud exacta).} Con la variante (a)+(b) el CRB
+    anal\'itico y el FD est\'an en las \textbf{mismas unidades} (normalizaci\'on
+    $I_{\mathrm{laser}}\!\cdot\!w h$, misma rejilla). Pero el anal\'itico es
+    sistem\'aticamente \textbf{menor} ($\sim0.5$--$0.7\times$ la $\sigma$ del FD)
+    por el \textbf{sesgo de cuadratura puntual} (Obs.~\ref{rem:cuadratura}); ese
+    desfase \textbf{no} se cierra al endurecer el suavizado (que lleva al forward
+    duro \emph{puntual}, no al de malla), sino con la suma sobre malla (a+b+c).
     \item \textbf{Suavidad / condicionamiento.} El forward anal\'itico tiene
     derivadas \emph{exactas} ($C^\infty$). El Jacobiano FD se calcula sobre un
     forward con escalones ($\lceil\cdot\rceil$ y $\texttt{xint}>0$ constantes a
@@ -1392,15 +1470,20 @@ Ahora que las escalas coinciden, ``mejor'' combina \textbf{magnitud comparable},
     condicionada}.
     \item \textbf{Forma / orientaci\'on.} Ambos dan elipses finas en \'angulo
     (resoluci\'on azimutal de la arista) y m\'as anchas en rango; la orientaci\'on
-    es consistente salvo el ruido FD.
+    es consistente. El aspecto medio difiere ($9.36$ anal.\ vs $8.22$ FD), en
+    parte por el sesgo puntual y en parte porque los anchos de suavizado
+    ($\kappa=60$, $\tau=\Delta t$) son \textbf{gen\'ericos y m\'as gruesos} que la
+    discretizaci\'on (penumbra $\sim4.3$ p\'ixeles); la rama (a)+(b)+(c) los ata a
+    la discretizaci\'on ($\kappa=256$, $\tau=\Delta t/\sqrt{12}$).
     \item \textbf{Salvedad.} La faceta puntual (\'area \'unica $w h$ en $z=h/2$)
-    \emph{no} reproduce exactamente el rasterizador de malla; el peque\~no residual
-    y la dependencia de $\beta,\kappa,\tau$ son el precio de la diferenciabilidad.
+    \textbf{no} reproduce el rasterizador de malla; el sesgo es \emph{sistem\'atico}
+    (no un residual que se anule) y solo lo corrige la suma sobre malla.
 \end{enumerate}
-\textbf{Veredicto:} para un CRB \emph{diferenciable}, la elipse \textbf{anal\'itica}
-es ahora comparable en \textbf{magnitud} con la FD y, por sus derivadas exactas,
-mejor condicionada; el FD sigue siendo valioso como verificaci\'on independiente y
-como modelo de malla completo.
+\textbf{Veredicto:} (a)+(b) coloca el CRB anal\'itico en la \textbf{escala f\'isica
+correcta} (mismas unidades que la FD) y, por sus derivadas exactas, mejor
+condicionada; pero conserva un sesgo de cuadratura puntual sistem\'atico que hace
+el CRB \emph{menor} que el de malla. El FD sigue siendo la referencia (modelo de
+malla completo); la correcci\'on del sesgo es la rama (a)+(b)+(c).
 
 %==============================================================================
 \section{Conclusi\'on}
@@ -1428,16 +1511,26 @@ diferenciabilidad), el Heaviside de la \texttt{xint} por una \textbf{sigmoide}
           $\sim1\times10^{-9}$;
     \item con \textbf{amplitud f\'isica} ($I_{\mathrm{laser}}\!\cdot\!w h$) y la
           \textbf{misma rejilla} $64\times64$/\texttt{bin} real (variante
-          (a)+(b)), el CRB anal\'itico y el FD quedan en la \textbf{misma escala}
-          y son comparables en magnitud (el anal\'itico $\sim0.5$--$0.7\times$ el
-          FD, convergiendo al bajar el suavizado).
+          (a)+(b)), el CRB anal\'itico y el FD quedan en las \textbf{mismas
+          unidades} / la misma escala f\'isica (se corrige el defecto de escala de
+          la versi\'on previa con ganancia y rejilla propias).
 \end{itemize}
-Salvedades: el modelo sigue siendo una \textbf{faceta puntual} con \'area \'unica
-$A_{\mathrm{eff}}=w h$ colocada en el centroide $z=h/2$ (no el render de malla,
-Obs.~\ref{rem:area}); la geometr\'ia (rejilla del simulador) es fija; se asume
-$\nabla d_i\neq\vect0$ (Hip.~\ref{as:geom}) e $\matr{I}\succ0$; y los par\'ametros
-$(\beta,\kappa,\tau)$ recuperan el l\'imite duro cuando $\beta,\kappa\to\infty$,
-$\tau\to0$.
+\textbf{Salvedad principal (sesgo de cuadratura, no convergencia).} La variante
+(a)+(b) corrige la \emph{escala} pero \textbf{no} la magnitud: es una faceta
+\textbf{puntual}, i.e.\ una \textbf{cuadratura de un solo nodo} (\'area $w h$ en el
+centroide $z=h/2$) de la integral que el simulador suma sobre malla. Su error es
+\textbf{sistem\'atico} --- sobreestima la intensidad $\sim1.5\times$ (dominado por
+la oclusi\'on de la faceta extendida; adem\'as $1/d_2^2$ y cosenos no lineales) ---
+y por eso el CRB anal\'itico es \emph{menor} que el FD ($\sigma_\varphi$ anal./FD
+hasta $\sim0.57$). Endurecer el suavizado \textbf{no} lo corrige: en el l\'imite
+$\tau\to0,\kappa,\beta\to\infty$ esta variante converge a su \textbf{propio}
+forward duro \emph{puntual} (verificado: $L^1$ $15.9\%\to0.34\%$), \textbf{no} al
+de malla (Obs.~\ref{rem:cuadratura}). La correcci\'on es la \textbf{suma sobre
+malla} (rama (a)+(b)+(c)), que adem\'as ata los anchos de suavizado a la
+discretizaci\'on ($\kappa=256=1/$p\'ixel, $\tau=\Delta t/\sqrt{12}$) en lugar de
+los gen\'ericos de aqu\'i ($\kappa=60$, penumbra $\sim4.3$ p\'ixeles;
+$\tau=\Delta t$). Otras salvedades: la geometr\'ia (rejilla del simulador) es fija;
+se asume $\nabla d_i\neq\vect0$ (Hip.~\ref{as:geom}) e $\matr{I}\succ0$.
 
 %------------------------------------------------------------------------------
 \paragraph{Archivos.}
