@@ -7,15 +7,22 @@ partial derivatives ``dg_q/dpsi_m`` obtained by **symbolic differentiation**
 (sympy), and the Poisson Fisher information / Cramer-Rao bound assembled from
 them.
 
-It is the differentiable analogue of the rasterized simulator's OWN forward
+Scope: this is the **qualitative BASE variant** (PR#2, "pr2-base").  It shares
+the *structure* of the rasterized simulator's forward
 (``simulation_polar_clean.ipynb`` cell 8, triangle loop ~lines 208-318, which
-``crb_polar_functions.py`` differentiates by *finite differences*).  It does NOT
-modify or call that simulator; it re-expresses the SAME per-pixel intensity as a
-smooth, closed-form function and differentiates it exactly.
+``crb_polar_functions.py`` differentiates by *finite differences*): the same
+two-bounce path, the same four foreshortening cosines, the same ``4*pi^2``
+radiometric constant, and the same occlusion / temporal-binning operators --- but
+now smoothed.  It does NOT call or modify that simulator.  It is **NOT** a
+magnitude- or ``d/dh``-faithful reproduction of the simulator; see the honest
+caveats below.  For physically faithful magnitude use the sibling branches
+``cursor/analytic-forward-physical-grid-9b29`` (a+b: simulator grid/geometry) and
+``cursor/analytic-forward-mesh-sum-9b29`` (a+b+c: mesh-sum with growing area).
 
 The simulator uses a *two-bounce* path (laser -> facet -> floor pixel; the SPAD
 sees the floor point directly), NOT the 3-bounce / 5-cosine / 8*pi^3 model of the
-paper.  Concretely, for facet centroid ``p_s`` and floor pixel ``p_f``:
+paper.  The per-pixel intensity whose *structure* we mirror is, for facet point
+``p_s`` and floor pixel ``p_f``:
 
     lps = p_l - p_s,  d1 = ||lps||;   fovsp = p_f - p_s,  d2 = ||fovsp||
     n_s = (-cos phi, -sin phi, 0),  n_l = n_f = (0,0,1)
@@ -25,7 +32,7 @@ paper.  Concretely, for facet centroid ``p_s`` and floor pixel ``p_f``:
     arrival_bin = ceil((d1+d2)/(c*Dt));  intensity deposited whole into that bin
     noc = (xint > 0),  xint = s_x - s_y*(s_x - p_fx)/(s_y - p_fy)
 
-Every source of non-differentiability of that function is replaced by a smooth,
+Every source of non-differentiability of that structure is replaced by a smooth,
 closed-form analogue:
 
 ============================  ==========================================================
@@ -42,16 +49,34 @@ deposit in integer pixel/bin  factorized product ``A_i(psi) * S_ij(psi)`` evalua
                                  analytically on a fixed floor/time grid
 ============================  ==========================================================
 
-The triangle ``area`` (which varies per triangle in the mesh simulator) is folded
-into the constant gain ``G`` / albedo ``alpha`` as an *effective constant facet
-area* (point-facet assumption).  The camera position ``p_c`` plays NO role in the
-two-bounce forward and is not used.
+HONEST CAVEATS (why this is a *qualitative base*, not a faithful reproduction):
 
-The parameter Jacobian is therefore available in closed form for the Fisher
-information ``I_{mk} = sum_q (1/g_q) dg_q/dpsi_m dg_q/dpsi_k`` and
-``CRB = I^{-1}`` -- the Poisson-Fisher structure of the paper (eqs. 9, 11), but
-applied to the *simulator's* two-bounce intensity with *exact* analytic
-derivatives instead of finite differences.
+  (i)   Facet placement: the point facet sits at height ``z = h``, whereas the
+        simulator's triangle centroid is at ~``h/2`` (a facet spanning floor to
+        ``h``).  The vertical geometry (hence the absolute time-of-flight and the
+        cosines) differs from the simulator's.
+  (ii)  Area / ``d/dh``: the triangle ``area`` -- which in the simulator GROWS
+        with ``h`` (roughly area ∝ h) -- is folded here into a CONSTANT gain
+        ``gain=1e5`` (effective constant facet area).  Consequently ``dy/dh``
+        models "lifting a fixed-size facet" and does NOT capture the simulator's
+        physics where a taller facet also intercepts/returns more light.  The
+        ``d/dh`` column of the Jacobian is therefore qualitative only.
+  (iii) Grid: this module uses its OWN small grid (8x8 floor pixels, FOV 0.5 m,
+        centre y=-0.25), NOT the simulator's (64x64, FOV 0.25 m, centre y=-0.125).
+        Pixel pitch (6.25 cm here vs 0.39 cm in the simulator) and pixel count
+        differ, so the absolute CRB magnitude is not comparable to the simulator.
+
+Because of (i)-(iii) the ABSOLUTE CRB magnitude and the ``d/dh`` sensitivity are
+NOT physically faithful; only the *structure* (two bounces, four cosines,
+``4*pi^2``, the smoothed occlusion and binning) and the *shape/orientation* of the
+(rho, phi) ellipses match the simulator.  The camera position ``p_c`` plays NO
+role in the two-bounce forward and is not used.
+
+The parameter Jacobian is available in closed form for the Fisher information
+``I_{mk} = sum_q (1/g_q) dg_q/dpsi_m dg_q/dpsi_k`` and ``CRB = I^{-1}`` -- the
+Poisson-Fisher structure of the paper (eqs. 9, 11), applied to this smoothed
+two-bounce *structure* with *exact* analytic derivatives instead of finite
+differences.
 
 Public API
 ----------
@@ -96,9 +121,13 @@ class ForwardConfig:
     """Fixed geometry + smoothing parameters of the analytic forward.
 
     All fields are *fixed* w.r.t. the estimated parameters ``psi=(rho,phi,h)``;
-    only the facet pose is differentiated.  The defaults follow the simulator's
-    conventions (laser at the origin pointing +z, floor FOV ~0.5 m adjacent to
-    the occluding edge, bin size 390 ps).
+    only the facet pose is differentiated.  These defaults are the BASE variant's
+    OWN choices (laser at the origin pointing +z, an 8x8 floor FOV ~0.5 m wide
+    centred at y=-0.25, bin size 390 ps); they are NOT the simulator's grid
+    (64x64, FOV 0.25 m, centre y=-0.125) and the gain folds the facet area into a
+    constant, so the absolute magnitude and ``d/dh`` are qualitative only (see the
+    module docstring caveats and the sibling a+b / a+b+c branches for physically
+    faithful geometry).
 
     Smoothing parameters (documented in docs/analytic_forward_crb.tex):
 
