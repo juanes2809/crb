@@ -409,8 +409,13 @@ $\kappa\to\infty$ (con convergencia uniforme fuera de una capa de ancho
 $\sim1/\kappa$, Prop.~\ref{prop:sigmoid}); y (4) tiene \textbf{derivada simple}
 $\sigma'=\kappa\,\sigma(1-\sigma)$. El par\'ametro $\kappa$ es el ancho de
 \emph{penumbra}: la transici\'on sombra$\to$luz ocurre en una banda de
-semi-anchura $\sim1/\kappa$ (metros). Por defecto $\kappa=60$ (penumbra
-$\sim1.7$\,cm, comparable al tama\~no de p\'ixel).
+semi-anchura $\sim1/\kappa$ (metros). Por defecto $\kappa=60$ es una elecci\'on
+\textbf{gen\'erica de esta rama base} (penumbra $\sim1.7$\,cm), un valor
+intermedio entre las dos escalas de p\'ixel en juego --- el de la rejilla propia
+de esta rama ($6.25$\,cm) y el del simulador ($0.39$\,cm) --- y por tanto
+\emph{no} atado a ninguna de ellas. En la rama a+b+c
+(\texttt{cursor/analytic-forward-mesh-sum-9b29}) la penumbra se ata al p\'ixel del
+simulador, $\kappa=1/\text{pixel\_pitch}=256$.
 
 \begin{figure}[ht]
 \centering
@@ -805,6 +810,21 @@ $D_\delta f=A/(2\delta)$. Los l\'imites son inmediatos.
 \'Esta es la raz\'on de fondo por la que el pipeline con FD debe afinar
 $\delta_\rho,\delta_\varphi,\delta_h$: sobre las mesetas obtiene $0$; cerca de una
 isocrona o de la frontera $\texttt{xint}=0$, un valor $\propto1/\delta$.
+
+\begin{remark}[La extrapolaci\'on de Richardson es inapropiada sobre un forward escalonado]
+La variante de \emph{Richardson} que ofrece \texttt{crb\_polar\_functions.py}
+(refinar $\delta$ y extrapolar el error a orden superior) presupone una
+\textbf{expansi\'on de error suave} en potencias de $\delta$ del tipo
+$D_\delta f = f' + c_2\delta^2 + c_4\delta^4 + \dots$. Esa hip\'otesis
+\textbf{no se cumple} sobre el forward duro: por la Prop.~\ref{prop:fd}, cerca de
+un salto $D_\delta f\propto1/\delta$ (crece, no decrece, al refinar) y sobre las
+mesetas es id\'enticamente $0$, de modo que no existe la serie que Richardson
+extrapola. Aplicarla amplificar\'ia el artefacto $1/\delta$ en lugar de
+cancelarlo. Por eso \textbf{no} se usa en el pipeline (siempre se emplea el
+esquema \texttt{central}); se se\~nala aqu\'i solo como advertencia. El forward
+\emph{suave} de este trabajo evita el problema de ra\'iz: su derivada es
+anal\'itica y exacta, sin dependencia de $\delta$.
+\end{remark}
 
 %------------------------------------------------------------------------------
 \subsection*{Paso 3. Herramientas de an\'alisis real}
