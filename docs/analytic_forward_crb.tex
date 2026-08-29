@@ -391,7 +391,14 @@ m\'as al simulador''. No conviene, por tres razones:
 \textbf{Conclusi\'on:} se elige un valor \textbf{intermedio}, que balancea
 fidelidad $\leftrightarrow$ derivada acotada / Fisher bien condicionada. El
 l\'imite duro se recupera formalmente (Prop.~\ref{prop:consistencia}) pero no es
-donde se opera.
+donde se opera. \emph{Salvedad num\'erica:} la forma
+$\softplus_\beta(x)=\beta^{-1}\log(1+e^{\beta x})$ \textbf{desborda} en
+\texttt{float64} cuando $\beta x\gtrsim709$ ($e^{\beta x}\to\infty$), de modo que
+el l\'imite $\beta\to\infty$ solo es alcanzable num\'ericamente hasta
+$\beta\approx700$; si hiciera falta operar m\'as cerca del l\'imite existe la
+forma estable $\max(x,0)+\beta^{-1}\log(1+e^{-\beta|x|})$ (no se sustituye en la
+expresi\'on \emph{simb\'olica} para no introducir artefactos de la rama $|x|$ en
+\texttt{sympy.diff}). Con $\beta=50$ estamos muy lejos de ese r\'egimen.
 \end{remark}
 
 %------------------------------------------------------------------------------
@@ -617,9 +624,13 @@ $G$ como \emph{\'area efectiva constante} y la magnitud del CRB quedaba arbitrar
 ser un par\'ametro libre y se vuelve \emph{comparable} con el rasterizador
 (Sec.~\ref{sec:resultados}). La \'unica cuadratura es geom\'etrica: sumar sobre
 los centroides de los tri\'angulos aproxima la integral de superficie que el
-simulador realiza sobre $\sim\!5000$ tri\'angulos densificados; por eso
-densificamos a $T=512$, con lo que la cuadratura \emph{converge} (los cambios de
-$128$ a $512$ y a $2048$ tri\'angulos son $<0.5\%$) y la magnitud del CRB coincide
+simulador realiza sobre $\sim\!5000$ tri\'angulos densificados. Conviene
+distinguir \textbf{dos} velocidades de convergencia: la \emph{energ\'ia} del
+forward converge ya con $\sim\!128$ tri\'angulos ($0.11\%$ entre $128$ y $2048$),
+pero las $\sigma$ del CRB ---que dependen de \emph{derivadas} de esa integral---
+convergen m\'as tarde: $\sigma_\rho$ a\'un cambia $+6.9\%$ de $128\!\to\!512$ y
+solo $+0.37\%$ de $512\!\to\!2048$. Por eso usamos $T=512$ (primer nivel
+c\'omodamente convergido, $512\!\to\!2048<0.5\%$) y la magnitud del CRB coincide
 con el FD (Sec.~\ref{sec:resultados}).
 \end{remark}
 
@@ -1421,8 +1432,8 @@ del CRB anal\'itico y del FD \textbf{s\'i} son directamente comparables: compart
 amplitud f\'isica, rejilla del simulador y la malla real densificada de la faceta.
 La superposici\'on a \emph{magnitud real} (Fig.~\ref{fig:avf-abs}) muestra las
 elipses anal\'iticas (verde) cayendo sobre las FD (rojo) en toda la rejilla, con
-$\sigma_\rho^{\mathrm{an}}/\sigma_\rho^{\mathrm{FD}}\in[1.00,1.09]$ y
-$\sigma_\varphi^{\mathrm{an}}/\sigma_\varphi^{\mathrm{FD}}\in[1.02,1.12]$
+$\sigma_\rho^{\mathrm{an}}/\sigma_\rho^{\mathrm{FD}}\in[1.08,1.10]$ y
+$\sigma_\varphi^{\mathrm{an}}/\sigma_\varphi^{\mathrm{FD}}\in[1.06,1.12]$
 (Tabla~\ref{tab:avf}) --- \textbf{ambos ejes} $\approx1{:}1$. Dos ingredientes lo
 consiguen: (i) \emph{densificar} la faceta ($T=512$; la suma sobre pocos
 tri\'angulos es una cuadratura de superficie demasiado gruesa) fija la escala
@@ -1440,8 +1451,8 @@ curvas quedan casi indistinguibles.
 }{\textit{(Pendiente: ejecutar la comparaci\'on con la cache FD disponible.)}}
 \caption{(a) Superposici\'on anal\'itico (a)+(b)+(c) (verde) vs FD (rojo) a
 \emph{magnitud real}, \textbf{sin} normalizar: las elipses coinciden en toda la
-rejilla en \textbf{ambos} ejes ($\sigma_\rho$ y $\sigma_\varphi$ anal./FD
-$\in[1.00,1.12]$), lo que antes era imposible con la faceta puntual. Archivo
+rejilla en \textbf{ambos} ejes ($\sigma_\rho$ anal./FD $\in[1.08,1.10]$,
+$\sigma_\varphi\in[1.06,1.12]$), lo que antes era imposible con la faceta puntual. Archivo
 \texttt{plots/crb\_regions\_analytic\_vs\_fd.png}.}
 \label{fig:avf-abs}
 \end{figure}
@@ -1478,7 +1489,8 @@ de \textbf{magnitud}.
     \textbf{densificados} ($T=512$) hacen que
     $\sigma_\rho^{\mathrm{an}}\approx\sigma_\rho^{\mathrm{FD}}$ \emph{y}
     $\sigma_\varphi^{\mathrm{an}}\approx\sigma_\varphi^{\mathrm{FD}}$ (razones
-    $1.00$--$1.12$) en toda la rejilla; en el l\'imite duro
+    $\sigma_\rho$ $1.08$--$1.10$ y $\sigma_\varphi$ $1.06$--$1.12$) en toda la
+    rejilla; en el l\'imite duro
     ($\tau\to0,\kappa,\beta\to\infty$) ambos forwards coinciden y las Fisher
     convergen.
     \item \textbf{Suavidad / condicionamiento.} El forward anal\'itico tiene
@@ -1534,9 +1546,9 @@ $3.9\times10^{-10}$); y \textbf{(c)} la suma sobre los tri\'angulos reales de
 \texttt{facet.obj} \textbf{densificado} ($T=512$) con \emph{placement} simb\'olico,
 y anchos de suavizado ligados a la discretizaci\'on ($\kappa=1/$p\'ixel$=256$,
 $\tau=\Delta t/\sqrt{12}$). Resultado: el CRB anal\'itico es \textbf{comparable en
-magnitud} con el FD en \textbf{ambos} ejes ($\sigma_\rho$ \emph{y} $\sigma_\varphi$
-anal./FD $1.00$--$1.12$ en toda la rejilla) y la superposici\'on a magnitud real
-coincide sin normalizar. Salvedades: la cuadratura de superficie es num\'erica pero
+magnitud} con el FD en \textbf{ambos} ejes ($\sigma_\rho$ anal./FD $1.08$--$1.10$,
+$\sigma_\varphi$ $1.06$--$1.12$ en toda la rejilla) y la superposici\'on a magnitud
+real coincide sin normalizar. Salvedades: la cuadratura de superficie es num\'erica pero
 \textbf{ya convergida} ($T=512$; subir a $2048$ mueve el CRB $<0.5\%$); la
 convenci\'on de altura es la del simulador (faceta de $z=0$ a $z=h$ tras la
 elevaci\'on $z_{\min}\!\to\!0$); la ventana de bins se congela alrededor del pulso

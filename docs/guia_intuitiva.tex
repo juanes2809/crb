@@ -192,11 +192,13 @@ El proyecto creci\'o en capas. Cada rama (PR) a\~nade una pieza sobre la anterio
 Aqu\'i el mapa, de lo m\'as b\'asico a lo m\'as fiel:
 
 \begin{description}
-\item[\textbf{PR\#1 --- Plots polares (ruta FD, tarea original).}] La base. Corre
-  el \textbf{simulador rasterizado} en una rejilla de poses $(\rho,\varphi)$,
-  calcula el CRB por \textbf{diferencias finitas} y dibuja las burbujas $3\sigma$.
-  Es el punto de partida y sirve como \textbf{verdad de referencia} contra la que
-  se compara todo lo dem\'as. No hay derivadas exactas: todo es num\'erico.
+\item[\textbf{PR\#1 --- Plots polares (ruta FD, tarea original).}] La base. Ojo
+  con un matiz: el \textbf{c\'odigo} de la ruta FD (simulador rasterizado + CRB por
+  diferencias finitas) vive en \texttt{main}; lo que hace PR\#1 es
+  \textbf{regenerar los PNG} de las burbujas $3\sigma$ en $(\rho,\varphi)$ con ese
+  c\'odigo. Es el punto de partida y sirve como \textbf{verdad de referencia}
+  contra la que se compara todo lo dem\'as. No hay derivadas exactas: todo es
+  num\'erico.
 
 \item[\textbf{PR\#2 --- Forward anal\'itico + teor\'ia.}] Introduce la
   \textbf{ruta anal\'itica}: reemplaza las tres operaciones duras por suaves
@@ -215,7 +217,7 @@ Aqu\'i el mapa, de lo m\'as b\'asico a lo m\'as fiel:
   ($64\times64$, FOV $0.25$, bin $3.9\times10^{-10}$\,s). Con esto las escalas ya
   son del mismo orden. Pero la faceta sigue siendo \textbf{puntual} (toda el
   \'area concentrada en un punto), lo que hace el rango \emph{demasiado afilado}:
-  $\sigma_\rho$ sale \textbf{$\sim0.5$--$0.7\times$} el del FD (subestima la
+  $\sigma_\rho$ sale \textbf{$\sim0.50$--$0.85\times$} el del FD (subestima la
   incertidumbre).
 
 \item[\textbf{PR\#4 --- Caso (a)+(b)+(c): malla real + densificada (esta rama).}]
@@ -321,7 +323,7 @@ problemas distintos que corregir, y cada uno tiene su culpable:
 Si toda la faceta se concentra en \textbf{un punto}, ese punto responde a un
 cambio de distancia de forma muy ``limpia'': todos los fotones se mueven juntos en
 el tiempo de vuelo, la se\~nal es muy sensible a $\rho$ y el CRB de rango sale
-\emph{minúsculo} (demasiado optimista, $\sigma_\rho\sim0.5$--$0.7\times$ FD).
+\emph{minúsculo} (demasiado optimista, $\sigma_\rho\sim0.50$--$0.85\times$ FD).
 \textbf{La cura} es usar la \textbf{malla real} (c): la faceta ocupa un volumen,
 sus partes est\'an a distancias ligeramente distintas, la respuesta se ``reparte''
 y el rango se vuelve realista. \emph{La malla corrige $\sigma_\rho$.} Es como la
@@ -333,8 +335,12 @@ gruesa y penumbra demasiado ancha).} Con solo $2$ tri\'angulos, la ``integral''
 sobre la superficie de la faceta es una aproximaci\'on burda ---como estimar el
 \'area de un pa\'is con dos rect\'angulos---. \textbf{Densificar} (subdividir a
 $512$ tri\'angulos) hace que esa suma \textbf{converja} al valor correcto de la
-integral de superficie (los cambios de $128\to512\to2048$ tri\'angulos son
-$<0.5\%$). Pero adem\'as la resoluci\'on angular la fija el \textbf{borde} de la
+integral de superficie. Aqu\'i hay un matiz \'util: la \emph{energ\'ia} del forward
+converge ya con $\sim\!128$ tri\'angulos ($0.11\%$ hasta $2048$), pero las
+$\sigma$ del CRB (que dependen de \emph{derivadas}) tardan un poco m\'as
+---$\sigma_\rho$ cambia $+6.9\%$ de $128$ a $512$ y solo $+0.37\%$ de $512$ a
+$2048$---, por eso se usa $512$ ($512\to2048$ ya $<0.5\%$). Pero adem\'as la
+resoluci\'on angular la fija el \textbf{borde} de la
 sombra, y \'esa depende de lo n\'itida que sea la \textbf{penumbra}: si la penumbra
 es m\'as ancha que un p\'ixel, el borde ``se emborrona'' y $\sigma_\varphi$ sale
 grande. \textbf{La cura} es poner la penumbra del tama\~no de un p\'ixel
@@ -351,15 +357,16 @@ $\sigma_\rho\approx$ FD algo \textbf{fortuito}: al converger, \emph{ambas}
 incertidumbres se estabilizan y lo que termina de igualarlas con el FD es
 \textbf{atar los anchos de suavizado a la discretizaci\'on del simulador} (un
 p\'ixel de penumbra, un bin de varianza). No es ``ajustar a ojo'': son las escalas
-\emph{propias} del simulador. El resultado (medido) es que $\sigma_\rho$ y
-$\sigma_\varphi$ quedan ambas en \textbf{raz\'on $1.00$--$1.12$} respecto al FD en
-\textbf{toda} la rejilla.
+\emph{propias} del simulador. El resultado (medido) es que $\sigma_\rho$ queda en
+\textbf{raz\'on $1.08$--$1.10$} y $\sigma_\varphi$ en $1.06$--$1.12$ respecto al FD
+en \textbf{toda} la rejilla (esencialmente $\approx1{:}1$ en ambos ejes).
 
 \figabc{../plots/crb_regions_analytic_vs_fd.png}{0.72}{\textbf{Examen final:
 anal\'itico (verde) vs FD (rojo) a magnitud real.} Las elipses coinciden en toda la
-rejilla, en \textbf{ambos} ejes ($\sigma_\rho$ y $\sigma_\varphi$, razones
-$1.00$--$1.12$). Que caigan una sobre otra \emph{sin} normalizar es la prueba de
-que las dos rutas concuerdan en forma \emph{y} en tama\~no.}
+rejilla, en \textbf{ambos} ejes ($\sigma_\rho$ en raz\'on $1.08$--$1.10$,
+$\sigma_\varphi$ en $1.06$--$1.12$). Que caigan una sobre otra \emph{sin}
+normalizar es la prueba de que las dos rutas concuerdan en forma \emph{y} en
+tama\~no.}
 
 \figabc{../plots/crb_regions_analytic_vs_fd_shapenorm.png}{0.72}{\textbf{Mismo
 overlay, normalizado en forma (\emph{shapenorm}).} Se iguala el tama\~no para
@@ -384,7 +391,7 @@ informaci\'on se gasta en la altura.}
 \textbf{Resultado ($\sigma_\rho/\sigma_\varphi$ vs FD)} & \textbf{Para qu\'e sirve}\\
 \midrule
 \textbf{PR\#1}\newline Plots FD &
-Simulador rasterizado + CRB por diferencias finitas; burbujas $3\sigma$. &
+Regenera los PNG de las burbujas $3\sigma$ (c\'odigo FD/simulador en \texttt{main}). &
 Es la \textbf{referencia} (por definici\'on $1{:}1$ consigo mismo). &
 Verdad de base; con qu\'e comparar.\\
 \textbf{PR\#2}\newline Anal\'itico + teor\'ia &
@@ -394,14 +401,14 @@ Coincide en \textbf{forma}; magnitud a\'un no comparable (faceta simplificada). 
 Derivadas exactas, Fisher bien condicionada.\\
 \textbf{PR\#3}\newline Caso (a)+(b) &
 Amplitud \textbf{f\'isica} + \textbf{rejilla} del simulador. Faceta a\'un puntual. &
-Misma \textbf{escala}; pero $\sigma_\rho\sim0.5$--$0.7\times$ (rango demasiado
+Misma \textbf{escala}; pero $\sigma_\rho\sim0.50$--$0.85\times$ (rango demasiado
 afilado). &
 Fijar unidades f\'isicas y la rejilla.\\
 \textbf{PR\#4}\newline Caso (a)+(b)+(c) \textbf{(esta rama)} &
 \textbf{Malla real} de \texttt{facet.obj} con \emph{placement} simb\'olico,
 \textbf{densificada} a $512$ tri\'angulos, y $\kappa,\tau$ atados a p\'ixel/bin. &
-\textbf{Ambos} $\approx1{:}1$: $\sigma_\rho$ y $\sigma_\varphi$ en razón
-$1.00$--$1.12$ en toda la rejilla. &
+\textbf{Ambos} $\approx1{:}1$: $\sigma_\rho$ en razón $1.08$--$1.10$ y
+$\sigma_\varphi$ en $1.06$--$1.12$ en toda la rejilla. &
 El CRB diferenciable \textbf{m\'as fiel}: exacto \emph{y} comparable en magnitud.\\
 \bottomrule
 \end{tabular}
