@@ -11,3 +11,5 @@ ipykernel
 anywidget
 notebook
 Pillow
+torch
+h5py
