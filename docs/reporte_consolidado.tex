@@ -1012,6 +1012,55 @@ $\approx1.9$--$2.4$ en $\sigma_\rho$ y $\approx1.6$--$1.9$ en
 $\sigma_\varphi$, consistente con la aditividad de la información de Fisher
 sobre los píxeles.
 
+\subsection{Qué quedó en el repositorio y qué se retiró}
+
+La rama consolidada conserva únicamente la documentación, el simulador nuevo, el
+\emph{pipeline} del CRB por diferencias finitas y sus utilidades y objetos. Todo
+lo retirado se comprobó previamente sin referencias (con \code{grep}), y después
+de retirarlo se volvió a ejecutar el \emph{pipeline} completo: el
+\emph{smoke test} del simulador y un recálculo con \code{--force} de las $15$
+poses reproducen sus números anteriores, y
+\code{plots/crb\_fd\_baseline\_32.png} se regenera byte-idéntico.
+
+\paragraph{Retirado.}
+\begin{itemize}[leftmargin=*]
+  \item \code{pyerti.py} --- el simulador antiguo en CPU. Superado por
+        \code{simulator.py}; nadie lo importaba y su carpeta de objetos apuntaba
+        a un directorio \code{NLOS-Simulator/} inexistente.
+  \item \code{regenerate\_crb\_standard\_regions.py} --- obtenía la función de
+        simulación ejecutando (\code{exec}) las celdas $1,3,5,7,8$ del
+        \emph{notebook}. Superado por \code{compute\_crb\_fd\_baseline.py}.
+        Calculaba además el CRB de tres parámetros, que el simulador nuevo no
+        puede sostener (decisión~\ref{dec:2param}).
+  \item \code{simulation\_polar\_clean.ipynb}, \code{simulation.ipynb} y
+        \code{validation.ipynb} --- unos $9\,$MB de \emph{notebooks}. El primero
+        solo lo referenciaba el \emph{script} anterior; los otros dos, nada. Su
+        contenido queda documentado en este reporte.
+  \item \code{plots/crb\_standard\_regions.png} y
+        \code{plots/crb\_standard\_regions\_fixed\_h.png} --- salidas del
+        \emph{script} retirado, calculadas sobre el simulador antiguo a
+        $64\times64$. Las versiones mejoradas de esos mismos resultados se
+        conservan en \code{docs/figs\_consolidado/} y están incrustadas en la
+        figura~\ref{fig:pr1}.
+\end{itemize}
+
+\paragraph{Conservado a propósito, aunque el \emph{pipeline} no lo use.}
+\begin{itemize}[leftmargin=*]
+  \item \code{sr\_crb.py} --- un barrido de resolución de cámara, directamente
+        pertinente a la elección de la grilla de $32\times32$. Está
+        \textbf{roto} en este momento: \code{utils/crb\_utils.py} es un archivo
+        de $0$ bytes, de modo que \code{sr\_crb.py} ni se importa. Se conserva
+        porque documenta la interfaz que se pretendía
+        (\code{SimulationConfig}, \code{run\_sweep},
+        \code{plot\_range\_angle\_sweep}) y porque el barrido sería útil para
+        justificar cuantitativamente la grilla.
+  \item \code{objects/validation.ipynb} --- inerte, porque
+        \code{get\_obj\_files} solo busca \code{*.obj}, y situado en una ruta
+        protegida.
+  \item \code{utils/NLOS\_simulator.py} y \code{utils/crb\_fix.py} --- código de
+        simulación anterior, bajo \code{utils/}, que se conserva íntegro.
+\end{itemize}
+
 %=======================================================================
 \section{Catálogo de figuras}
 \label{sec:catalogo}
