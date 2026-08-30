@@ -10,3 +10,4 @@ docs/*.out
 docs/*.toc
 plots/crb_grid_results.pkl
 plots/regen.log
+plots/crb_fd_baseline_*.pkl
