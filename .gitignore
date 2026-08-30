@@ -4,10 +4,10 @@ __pycache__/
 .ipynb_checkpoints/
 *.png
 !plots/crb_*.png
+!docs/figs_consolidado/*.png
 docs/*.aux
 docs/*.log
 docs/*.out
 docs/*.toc
-plots/crb_grid_results.pkl
+plots/*.pkl
 plots/regen.log
-plots/crb_fd_baseline_*.pkl
