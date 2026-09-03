@@ -1,0 +1,60 @@
+====================================================================================
+Suavizado del binning ceil — gaussiana (p=1) vs super-gaussiana (p=2)
+====================================================================================
+Geometría: faceta rho=1.0, phi=60°, N=32, centroide = [0.5    0.866  0.7925]; Δt = 3.90e-10 s (cΔt = 11.69 cm); T = 95 bins
+distance de los 1024 píxeles: 2.5123…2.7762 m  ->  t0/Δt = 21.487…23.744  ->  bins duros 22…24; bin central j = 23
+Constantes: Z_1 = 2.506628 (√(2π) = 2.506628), Z_2 = 2.563693; std/τ: p=1 -> 1.000000, p=2 -> 0.822179
+
+------------------------------------------------------------------------------------
+Verificaciones
+------------------------------------------------------------------------------------
+(1) p=1 vía gammainc vs erf:  max|F_1 − ½[1+erf(u/√2)]| = 2.22e-15;  max|P(½,u²/2) − erf(|u|/√2)| = 4.44e-15  -> OK (<1e-12)
+    ∫ s_1 du (trapecio) = 1.000000000000;  std numérica/τ = 1.000000 (teoría 1.000000);  max|F_1' − s_1| = 4.3e-08
+    ∫ s_2 du (trapecio) = 1.000000000000;  std numérica/τ = 0.822179 (teoría 0.822179);  max|F_2' − s_2| = 8.0e-08
+(2) Σ_j S_j(t0) sobre j=1…95, t0/Δt ∈ [20.49, 24.74], ambos pulsos, 3 τ: max|Σ − 1| = 1.11e-16 -> OK (<1e-10)
+(3) τ → 0: L1(S_j, h_j) debe → 0
+    τ = Δt/  3.46: L1 gauss = 0.46058 Δt, L1 SG(mismo τ) = 0.39916 Δt   (teoría gauss 2τ√(2/π) = 0.46066)
+    τ = Δt/ 10.00: L1 gauss = 0.15958 Δt, L1 SG(mismo τ) = 0.13827 Δt   (teoría gauss 2τ√(2/π) = 0.15958)
+    τ = Δt/ 50.00: L1 gauss = 0.03192 Δt, L1 SG(mismo τ) = 0.02765 Δt   (teoría gauss 2τ√(2/π) = 0.03192)
+    τ = Δt/200.00: L1 gauss = 0.00798 Δt, L1 SG(mismo τ) = 0.00691 Δt   (teoría gauss 2τ√(2/π) = 0.00798)
+
+------------------------------------------------------------------------------------
+Prueba 1 — bin promedio Σ_j j·S_j(t0) sobre los píxeles reales (τ base = Δt/√12)
+------------------------------------------------------------------------------------
+  RMS(escalera dura − (t0/Δt+½)) = 0.2960   (uniforme: 1/√12 = 0.2887)
+  RMS(escalera dura − t0/Δt)     = 0.5905   (offset ½ del ceil)
+  RMS(gaussiana (p=1)              − (t0/Δt+½)) = 0.0434   (85.3 % menos rizado que la escalera)
+  RMS(super-gauss p=2, mismo τ     − (t0/Δt+½)) = 0.0572   (80.7 % menos rizado que la escalera)
+  RMS(super-gauss p=2, misma std   − (t0/Δt+½)) = 0.0175   (94.1 % menos rizado que la escalera)
+  Nota: la referencia es la diagonal centrada t0/Δt+½ porque ceil deposita en el bin j la energía de t0∈((j−1)Δt, jΔt]; la recta t0/Δt está ½ bin por debajo por construcción.
+
+------------------------------------------------------------------------------------
+Prueba 2 — métricas de S_j (bin j=23) frente a la caja h_j; derivadas en 1/Δt; std en Δt
+------------------------------------------------------------------------------------
+pulso  τ base   criterio   τ_p/Δt   std/Δt   L1 [Δt]   L∞      max|dS/dt0|  ΣS_j min     ΣS_j max    
+-----------------------------------------------------------------------------------------------------
+p=1    Δt/√12   —            0.2887   0.2887    0.4606  0.5003       1.3786 1.0000000000 1.0000000000
+p=2    Δt/√12   mismo τ      0.2887   0.2373    0.3992  0.5000       1.3512 1.0000000000 1.0000000000
+p=2    Δt/√12   misma std    0.3511   0.2887    0.4855  0.5000       1.1109 1.0000000000 1.0000000000
+p=1    Δt/3     —            0.3333   0.3333    0.5314  0.5013       1.1841 1.0000000000 1.0000000000
+p=2    Δt/3     mismo τ      0.3333   0.2741    0.4609  0.5000       1.1702 1.0000000000 1.0000000000
+p=2    Δt/3     misma std    0.4054   0.3333    0.5606  0.5000       0.9621 1.0000000000 1.0000000000
+p=1    Δt       —            1.0000   1.0000    1.2625  0.6587       0.2229 1.0000000000 1.0000000000
+p=2    Δt       mismo τ      1.0000   0.8222    1.2324  0.6282       0.3239 1.0000000000 1.0000000000
+p=2    Δt       misma std    1.2163   1.0000    1.3634  0.6864       0.2367 1.0000000000 1.0000000000
+
+  τ=Δt/√12 SG mismo τ  : L1_SG/L1_gauss = 0.867,  maxderiv_SG/maxderiv_gauss = 0.980
+  τ=Δt/√12 SG misma std: L1_SG/L1_gauss = 1.054,  maxderiv_SG/maxderiv_gauss = 0.806
+  τ=Δt/3   SG mismo τ  : L1_SG/L1_gauss = 0.867,  maxderiv_SG/maxderiv_gauss = 0.988
+  τ=Δt/3   SG misma std: L1_SG/L1_gauss = 1.055,  maxderiv_SG/maxderiv_gauss = 0.812
+  τ=Δt     SG mismo τ  : L1_SG/L1_gauss = 0.976,  maxderiv_SG/maxderiv_gauss = 1.453
+  τ=Δt     SG misma std: L1_SG/L1_gauss = 1.080,  maxderiv_SG/maxderiv_gauss = 1.062
+  Analítico: max|dS_j/dt0| ≈ s_p(0)/τ_p para τ ≪ Δt -> gauss 0.3989/τ, SG 0.3901/τ (mismo τ), SG 0.3207/τ (misma std).
+  L∞ ≈ ½ para todo τ ≪ Δt: en el borde exacto de la caja cualquier pulso simétrico deposita ½; L∞ no discrimina, L1 sí.
+  E|u|/std (desviación media absoluta por unidad de std): gauss 0.7979, SG p=2 0.8409
+
+Conclusión
+----------
+1. ¿Aproxima mejor la caja la super-gaussiana?  Sólo en apariencia.  Con el MISMO τ, L1 baja 13 % (τ ≤ Δt/3) — pero únicamente porque su std es 0.822τ: es un pulso más estrecho, no uno 'más caja'.  Con la MISMA std, L1 es PEOR en 6 % en los tres τ: para τ ≪ Δt, L1 ≈ 2·E|t−t0| y una densidad de cima plana tiene más desviación media absoluta por unidad de std (E|u|/std = 0.841 frente a 0.798 de la gaussiana).  'Elevar al cuadrado' no acerca S_j a la caja a igualdad de anchura; el ancho de la transición lo fija la std, no el exponente.  Donde la SG (misma std) SÍ gana es en el bin promedio Σ_j j·S_j: su rizado respecto a la diagonal es 0.0175 frente a 0.0434 de la gaussiana (la escalera se 'derrite' de forma más uniforme porque la función característica de la SG es menor en la frecuencia 1/Δt).
+2. ¿A qué costo en la derivada?  Para τ ≤ Δt/3 el pico de dS_j/dt0 es s_p(0)/τ_p y la SG NO es más picuda: 0.98× la gaussiana con el mismo τ y 0.81× con la misma std (la cima plana reparte la misma área con menor máximo).  Para τ = Δt, cuando los dos bordes del bin caen en los flancos, los flancos empinados sí se notan: 1.45× (mismo τ) y 1.06× (misma std).  El costo real está en la FORMA de la derivada: una meseta que cae como exp(−u⁴/4), con gradiente ≈0 fuera de |u|≳2 (zonas muertas más anchas y de borde más abrupto) y segunda derivada mayor; para un optimizador o para un CRB evaluado con t0 en medio de un bin y τ pequeño, la información de Fisher queda confinada a ventanas más estrechas y el Hessiano peor condicionado.
+3. Recomendación para el CRB: la GAUSSIANA (p=1).  La caja no es física, es el artefacto numérico de ceil(); lo que hay que modelar es la respuesta temporal real (pulso láser de ps + jitter del SPAD + electrónica), que es aproximadamente gaussiana (con una cola exponencial de difusión en SPADs reales), no una caja.  La gaussiana (i) es la única con interpretación física directa (τ = σ del IRF, o Δt/√12 si sólo se quiere reproducir la varianza de la cuantización), (ii) tiene derivada suave, sin mesetas ni zonas muertas, con Fisher bien condicionado en todo t0, y (iii) la super-gaussiana sólo compra parecerse más al artefacto.  Si el objetivo fuera reproducir exactamente la caja, el límite p→∞ es un pulso uniforme y S_j se vuelve un trapecio: se recupera la derivada discontinua que se quería evitar.

@@ -64,3 +64,31 @@ rápida (vectorizada por chunks de triángulos; ~60× en GPU según la medición
 6× incluso en torch-CPU).  **El simulador GPU es el preferible**: misma
 física, bugs corregidos, y es la única implementación cuya salida coincide con la réplica al nivel de redondeo
 (5.6e-17).
+
+## Suavizado del binning: gaussiana vs super-gaussiana
+
+Script: `plot_binning_smoothing.py`.  Pulso de orden p, `s_p(u) ∝ exp(−(u²/2)^p)`, `u=(t−t0)/τ`; peso por bin `S_j = F_p(u_hi) − F_p(u_lo)` con `F_p(u) = ½ + ½·sign(u)·P(1/(2p), (u²/2)^p)`; p=1 es la gaussiana actual (`P(½,u²/2) = erf(|u|/√2)`), p=2 la super-gaussiana de cima plana.  Comparación con el mismo τ y con la misma std (`std_2 = 0.822·τ_2`).  Geometría real de la faceta (ρ=1, φ=60°, N=32), bin central j=23.
+
+Verificaciones: p=1 vía `gammainc` vs `erf`: max|Δ| = 2.2e-15; Σ_j S_j = 1 con max|Σ−1| = 1.1e-16 para ambos pulsos y los tres τ; con τ→0 (Δt/50, Δt/200) L1→0 para ambos (ver `pulse_comparison.txt`).
+
+**Bin promedio** Σ_j j·S_j(t0) sobre los píxeles reales (τ = Δt/√12), RMS frente a la diagonal centrada t0/Δt+½: escalera dura 0.2960 (1/√12); gaussiana (p=1) 0.0434; super-gauss p=2, mismo τ 0.0572; super-gauss p=2, misma std 0.0175.
+
+| pulso | τ base | criterio | τ_p/Δt | std/Δt | L1 [Δt] | L∞ | max\|dS_j/dt0\| [1/Δt] | Σ_j S_j min | Σ_j S_j max |
+|---|---|---|---|---|---|---|---|---|---|
+| p=1 | Δt/√12 | — | 0.2887 | 0.2887 | 0.4606 | 0.5003 | 1.3786 | 1.0000000000 | 1.0000000000 |
+| p=2 | Δt/√12 | mismo τ | 0.2887 | 0.2373 | 0.3992 | 0.5000 | 1.3512 | 1.0000000000 | 1.0000000000 |
+| p=2 | Δt/√12 | misma std | 0.3511 | 0.2887 | 0.4855 | 0.5000 | 1.1109 | 1.0000000000 | 1.0000000000 |
+| p=1 | Δt/3 | — | 0.3333 | 0.3333 | 0.5314 | 0.5013 | 1.1841 | 1.0000000000 | 1.0000000000 |
+| p=2 | Δt/3 | mismo τ | 0.3333 | 0.2741 | 0.4609 | 0.5000 | 1.1702 | 1.0000000000 | 1.0000000000 |
+| p=2 | Δt/3 | misma std | 0.4054 | 0.3333 | 0.5606 | 0.5000 | 0.9621 | 1.0000000000 | 1.0000000000 |
+| p=1 | Δt | — | 1.0000 | 1.0000 | 1.2625 | 0.6587 | 0.2229 | 1.0000000000 | 1.0000000000 |
+| p=2 | Δt | mismo τ | 1.0000 | 0.8222 | 1.2324 | 0.6282 | 0.3239 | 1.0000000000 | 1.0000000000 |
+| p=2 | Δt | misma std | 1.2163 | 1.0000 | 1.3634 | 0.6864 | 0.2367 | 1.0000000000 | 1.0000000000 |
+
+Cocientes SG/gauss: τ=Δt/√12, mismo τ: L1 ×0.867, max|dS/dt0| ×0.980; τ=Δt/√12, misma std: L1 ×1.054, max|dS/dt0| ×0.806; τ=Δt/3, mismo τ: L1 ×0.867, max|dS/dt0| ×0.988; τ=Δt/3, misma std: L1 ×1.055, max|dS/dt0| ×0.812; τ=Δt, mismo τ: L1 ×0.976, max|dS/dt0| ×1.453; τ=Δt, misma std: L1 ×1.080, max|dS/dt0| ×1.062.
+
+Figuras: `binning_smooth_overlay.png` (escalera real vs bin promedio; energía en el bin 23; derivada) y `pulse_gauss_vs_supergauss.png` (formas; S_j vs caja para los tres τ; pico de la derivada vs τ; conservación de masa).
+
+1. ¿Aproxima mejor la caja la super-gaussiana?  Sólo en apariencia.  Con el MISMO τ, L1 baja 13 % (τ ≤ Δt/3) — pero únicamente porque su std es 0.822τ: es un pulso más estrecho, no uno 'más caja'.  Con la MISMA std, L1 es PEOR en 6 % en los tres τ: para τ ≪ Δt, L1 ≈ 2·E|t−t0| y una densidad de cima plana tiene más desviación media absoluta por unidad de std (E|u|/std = 0.841 frente a 0.798 de la gaussiana).  'Elevar al cuadrado' no acerca S_j a la caja a igualdad de anchura; el ancho de la transición lo fija la std, no el exponente.  Donde la SG (misma std) SÍ gana es en el bin promedio Σ_j j·S_j: su rizado respecto a la diagonal es 0.0175 frente a 0.0434 de la gaussiana (la escalera se 'derrite' de forma más uniforme porque la función característica de la SG es menor en la frecuencia 1/Δt).
+2. ¿A qué costo en la derivada?  Para τ ≤ Δt/3 el pico de dS_j/dt0 es s_p(0)/τ_p y la SG NO es más picuda: 0.98× la gaussiana con el mismo τ y 0.81× con la misma std (la cima plana reparte la misma área con menor máximo).  Para τ = Δt, cuando los dos bordes del bin caen en los flancos, los flancos empinados sí se notan: 1.45× (mismo τ) y 1.06× (misma std).  El costo real está en la FORMA de la derivada: una meseta que cae como exp(−u⁴/4), con gradiente ≈0 fuera de |u|≳2 (zonas muertas más anchas y de borde más abrupto) y segunda derivada mayor; para un optimizador o para un CRB evaluado con t0 en medio de un bin y τ pequeño, la información de Fisher queda confinada a ventanas más estrechas y el Hessiano peor condicionado.
+3. Recomendación para el CRB: la GAUSSIANA (p=1).  La caja no es física, es el artefacto numérico de ceil(); lo que hay que modelar es la respuesta temporal real (pulso láser de ps + jitter del SPAD + electrónica), que es aproximadamente gaussiana (con una cola exponencial de difusión en SPADs reales), no una caja.  La gaussiana (i) es la única con interpretación física directa (τ = σ del IRF, o Δt/√12 si sólo se quiere reproducir la varianza de la cuantización), (ii) tiene derivada suave, sin mesetas ni zonas muertas, con Fisher bien condicionado en todo t0, y (iii) la super-gaussiana sólo compra parecerse más al artefacto.  Si el objetivo fuera reproducir exactamente la caja, el límite p→∞ es un pulso uniforme y S_j se vuelve un trapecio: se recupera la derivada discontinua que se quería evitar.
