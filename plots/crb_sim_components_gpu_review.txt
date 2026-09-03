@@ -1,0 +1,44 @@
+==============================================================================
+Funciones componentes del simulador GPU (simulator.py) - réplica numpy
+==============================================================================
+Pose de ejemplo: rho=1.0, phi=60.0 deg -> x=0.500000, y=0.866025, z=0, w=0.5
+N=32, camera_FOV=0.25, bin_size=3.9e-10, c*bin_size=0.11692 m, laser_intensity=1000.0, hide_walls=True
+num_time_bins = 95  (max_dist_travel = 9.2120 m, margen 1.2)
+Faceta: 32768 triángulos tras densify (min 10000), área total = 0.79251 m², extents = [0.4336 0.2511 1.585 ]
+Centroide (área-ponderado) = [0.5     0.86603 0.79251], normal media = [-5.0000e-01 -8.6603e-01  8.0000e-04]
+Escalares del triángulo representativo: d1=1.27596 m, dot1=0.78323 (raw 0.78323), dot3=0.62111 (raw 0.62111)
+Píxeles con noc=True (ven la faceta): 802 / 1024
+
+Simulando el transitorio con el bucle fiel sobre todos los triángulos ...
+  triángulos procesados: 32768, bins usados: 17…34
+
+------------------------------------------------------------------------------
+Diagnósticos de la réplica GPU
+------------------------------------------------------------------------------
+  theta = phi + 3π/2 = 5.759587 rad; normal media = [-5.0000e-01 -8.6603e-01  8.0000e-04] vs esperada [-0.5     -0.86603  0.     ] -> error 0.0456°
+  triángulos: 32768, saltados por noc vacío: 0
+  |denom|<=eps (máscara): 0; xint no finitos: 0
+  bins usados 17…34 de 95; fuera de rango (descartados por valid): 0
+  clamp activo (dot<0 con valid): dot2 0, dot4 0
+  índices repetidos dentro de un triángulo: 0 (index_add_ los sumaría igualmente)
+  centroide: noc=True en 802 / 1024 px; dot1=0.78323, dot3=0.62111
+
+------------------------------------------------------------------------------
+Sanity check: réplica numpy vs simulator.simulation(...) real (torch, cpu, float64)
+------------------------------------------------------------------------------
+  num_time_bins real = 95  vs réplica = 95
+  malla: 32768 triángulos reales vs 32768 réplica; max|Δvértices| = 0.000e+00
+  shapes: real (32, 32, 95), réplica (32, 32, 95)
+  max|réplica − real| = 5.551e-17   (max|real| = 1.7782e-01, sum real = 7.231124e+02, sum réplica = 7.231124e+02)
+  max|réplica − real| relativo = 3.122e-16
+  (control) max|y_raw sin roll − real| = 1.778e-01  -> el roll(+1, axis=1) es necesario
+  tiempo simulator.simulation en CPU torch: 1.71 s
+
+Archivos generados:
+  plots/crb_sim_components_gpu_binning.png
+  plots/crb_sim_components_gpu_cosines.png
+  plots/crb_sim_components_gpu_geometry.png
+  plots/crb_sim_components_gpu_hard_functions.png
+  plots/crb_sim_components_gpu_intensity.png
+  plots/crb_sim_components_gpu_occlusion.png
+  plots/crb_sim_components_gpu_transient.png
