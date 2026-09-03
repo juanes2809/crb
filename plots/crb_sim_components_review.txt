@@ -1,0 +1,108 @@
+==============================================================================
+Revisión numérica del simulador ORIGINAL (CPU/numpy) - funciones componentes
+==============================================================================
+Pose de ejemplo: rho=1.0, phi=60.0 deg -> x=0.500000, y=0.866025, z=0, w=0.5
+N=32, camera_FOV=0.25, bin_size=3.9e-10, c*bin_size=0.11692 m, laser_intensity=1000.0, hide_walls=True
+num_time_bins = 95  (max_dist_travel = 9.2120 m, margen 1.2)
+Faceta: 32768 triángulos tras densify (min 10000), área total = 0.79251 m², extents = [0.4394 0.2408 1.585 ]
+Centroide (área-ponderado) = [0.5     0.86603 0.79251], normal media = [-4.7943e-01 -8.7758e-01  8.0000e-04]
+Escalares del triángulo representativo: d1=1.27596 m, dot1=0.78301 (raw 0.78301), dot3=0.62111 (raw 0.62111)
+Píxeles con noc=True (ven la faceta): 802 / 1024
+
+Simulando el transitorio con el bucle fiel sobre todos los triángulos ...
+  triángulos procesados: 32768, bins usados: 17…34
+
+------------------------------------------------------------------------------
+a) Índice de píxel '-1' en coord = (bin-1)*N² + (jx - 1)*N + iy
+------------------------------------------------------------------------------
+  píxel (iy=0, jx=0), bin=1: coord=   -32  -> NEGATIVO -> indexa desde el final del vector (último bin, última columna)
+  píxel (iy=5, jx=0), bin=1: coord=   -27  -> NEGATIVO -> indexa desde el final del vector (último bin, última columna)
+  píxel (iy=5, jx=0), bin=20: coord= 19429  -> cae en y[iy=5, jx=31, bin=19]  (columna N-1 del bin anterior)
+  En el transitorio de la faceta: 196203 depósitos tenían jx=0 (envuelven de bin), 0 coords negativos.
+  y_orig[:, jx-1, t] == y_fixed[:, jx, t] para jx>=1 : True
+  y_orig[:, N-1, t-1] == y_fixed[:, 0, t]  (columna 0 envuelta al bin anterior): True
+  Correlación cruzada de perfiles de columna (orig vs fixed): lag óptimo = 1 columna(s)
+  |img_orig - img_fixed|_max = 1.7912e-01  vs  |img_orig[:, :-1] - img_fixed[:, 1:]|_max = 0.0000e+00
+  Energía total: sum(y_orig) = 7.226971e+02, sum(y_fixed) = 7.226971e+02 (igual: el bug sólo desplaza/envuelve, no pierde energía)
+
+------------------------------------------------------------------------------
+b) '+=' con índices repetidos vs np.add.at
+------------------------------------------------------------------------------
+  Caso sintético coord=[3, 3, 3, 7, 7, 9], intensity=[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+    y[coord] += intensity  -> y[3]=3.0, y[7]=5.0, total=14.0  (se queda el ÚLTIMO valor)
+    np.add.at(y, coord, .) -> y[3]=6.0, y[7]=9.0, total=21.0  (suma correcta)
+    energía perdida por '+=': 7.0 de 21.0 (33.3 %)
+  Transitorio de la faceta: índices repetidos DENTRO de una misma llamada `y[coord] += intensity`: 0
+    energía perdida acumulada por '+=' en la faceta: 4.908971e-16 (sum(y_orig)=7.226971e+02, sum(y_fixed)=7.226971e+02)
+    Lectura: en el código original coord se construye por triángulo y cada píxel aparece una sola vez,
+    así que el '+=' NO pierde energía ahí (bug latente).  Sí pierde energía en cuanto se vectoriza el
+    bucle sobre triángulos (varios triángulos -> mismo (píxel,bin)), que es justo lo que hace el simulador
+    GPU; de ahí que el 'IMPORTANT FIX' use np.add.at / index_add_.
+
+------------------------------------------------------------------------------
+c) theta = -cos(∠(u, v1)) usado como ÁNGULO en rotation_matrix(theta, [0,0,1])
+------------------------------------------------------------------------------
+  theta (original) = -0.500000 rad = -28.648°   (= -cos(phi) = -0.500000; siempre en [-1, 0] rad, NO depende de rho)
+  ángulo geométrico que usa simulator.py: theta = phi + 3π/2 = 5.759587 rad (≡ -0.523599 rad = -30.000°)
+  normal media resultante de la faceta = [-4.7943e-01 -8.7758e-01  8.0000e-04]
+  normal esperada (-cos phi, -sin phi, 0) = [-0.5     -0.86603  0.     ]  -> error angular 1.353°
+    phi= 30.0°: theta_orig=-0.8660 rad ( -49.62°), theta_correcto≡ -60.00°, normal_orig=[-0.762 -0.648  0.   ], esperada=[-0.866 -0.5    0.   ], error= 10.38°
+    phi= 60.0°: theta_orig=-0.5000 rad ( -28.65°), theta_correcto≡ -30.00°, normal_orig=[-0.479 -0.878  0.   ], esperada=[-0.5   -0.866  0.   ], error=  1.35°
+    phi= 90.0°: theta_orig=-0.0000 rad (  -0.00°), theta_correcto≡  +0.00°, normal_orig=[-0. -1.  0.], esperada=[-0. -1.  0.], error=  0.00°
+    phi=120.0°: theta_orig=+0.5000 rad ( +28.65°), theta_correcto≡ +30.00°, normal_orig=[ 0.479 -0.878  0.   ], esperada=[ 0.5   -0.866  0.   ], error=  1.35°
+    phi=150.0°: theta_orig=+0.8660 rad ( +49.62°), theta_correcto≡ +60.00°, normal_orig=[ 0.762 -0.648  0.   ], esperada=[ 0.866 -0.5    0.   ], error= 10.38°
+  Lectura: theta=-cos(phi) es un número adimensional en [-1,0] que se interpreta como radianes.  Sólo
+  coincide con el ángulo correcto en phi=90° (ambos 0) y casi por casualidad cerca de phi≈60°/120°
+  (−0.5 rad = −28.6° vs −30°); en phi=30°/150° la normal se desvía 10.4°, y en phi=0 la faceta gira
+  −1 rad (−57.3°) en vez de −90°.  Además theta no es monótono en el sentido correcto: la faceta
+  NUNCA gira más de ±57.3°, así que para |phi-90°|>~30° deja de 'mirar' al oclusor.
+
+------------------------------------------------------------------------------
+d) Sin bounds en arrival_bin
+------------------------------------------------------------------------------
+  Pose actual: max(arrival_bin) = 34  vs  num_time_bins = 95  (margen 61 bins) -> no desborda.
+  rho=2.5, phi=60°, z=0.55: max(arrival_bin)≈47 vs 95 -> ok
+  rho=2.5, phi=90°, z=0.55: max(arrival_bin)≈46 vs 95 -> ok
+  rho=3.5, phi=60°, z=0.55: max(arrival_bin)≈63 vs 95 -> ok
+  rho=4.0, phi=45°, z=0.55: max(arrival_bin)≈72 vs 95 -> ok
+  Lectura: el margen 1.2× sobre el punto (xmax,ymax,zmax) cubre poses dentro de los bounds; un objeto
+  fuera de los bounds (o bin_size menor) produce coord fuera de rango sin ningún chequeo.
+
+------------------------------------------------------------------------------
+e) División por cero sin máscara en m = Δy/Δx  y  xint = -b/m
+------------------------------------------------------------------------------
+  phi=90°, N=32 (x=rho·cos(90°)=6e-17)        : m no finito=  0, xint no finito=  0 (nan=  0), noc=True:  512/1024, max|m|=3.190e+02, min|Δx|=3.91e-03
+  phi=90°, N=33 (grilla con columna en x=0)   : m no finito=  0, xint no finito=  0 (nan=  0), noc=True:  561/1089, max|m|=2.035e+16, min|Δx|=6.12e-17
+  x=0 exacto, N=33                            : m no finito= 33, xint no finito=  0 (nan=  0), noc=True:  528/1089, max|m|=inf, min|Δx|=0.00e+00
+  x=0 exacto, N=32                            : m no finito=  0, xint no finito=  0 (nan=  0), noc=True:  512/1024, max|m|=3.190e+02, min|Δx|=3.91e-03
+  Lectura: con x=rho·cos(90°)=6.1e-17 ningún píxel tiene exactamente x=x_c (Δx mínimo 6e-17 con N impar),
+  así que no hay inf/nan, sólo pendientes |m| de hasta 2e16.  Con x_c=0 exacto y N impar la columna
+  central produce m=±inf; np.dot(m, 0.0) devuelve 0 (no nan), b=y_c y xint=-y_c/inf=-0.0, de modo que
+  `xint>0` es False: esa columna entera queda SILENCIOSAMENTE ocluida (noc=True baja de 561 a 528,
+  es decir 33 píxeles menos).  Sin máscara la división por cero contamina noc sin ningún aviso.
+
+------------------------------------------------------------------------------
+f) Otras observaciones de revisión
+------------------------------------------------------------------------------
+  - Globales implícitos: c, zmin, ymin, object_folder (y MESH_MIN_TRIANGLES) se leen del módulo,
+    no son parámetros de simulation(...): la función no es reproducible de forma aislada.
+  - 'yaw' se lee de object_positions pero NUNCA se usa; la rotación en z usa theta (ver c).
+  - Escalado: scale = min(w/ext_x, 1.1/ext_z) — no hay parámetro de altura 'h'; para la faceta plana
+    ext_z=0 -> 1.1/0 = inf y el min() lo descarta (altura resultante = 1.5850 m,
+    fijada por la relación de aspecto del .obj, no por el usuario).
+  - 'u = u = np.array([1,0,0])' asignación doble; theta se calcula fuera del if de carga.
+  - Oclusión geométrica reducida a un test del centroide (xint>0): sin auto-oclusión, sin visibilidad
+    parcial de triángulos; Heaviside duro -> gradiente cero salvo en el borde.
+  - Binning: ceil(...) sin interpolación: toda la energía del triángulo cae en un único bin entero;
+    la derivada respecto a rho/phi es cero casi en todo punto (ver hard_functions.png).
+  - El vector y_meas_vec se aloja como cam_pixel_dim²·num_bins y se hace reshape order='F' a (iy, jx, t).
+  - Tras el reshape la versión de utils/crb_fix.py aplica además np.roll(y, -1, axis=-1) (desplaza 1 bin).
+
+Archivos generados:
+  plots/crb_sim_components_binning.png
+  plots/crb_sim_components_cosines.png
+  plots/crb_sim_components_geometry.png
+  plots/crb_sim_components_hard_functions.png
+  plots/crb_sim_components_intensity.png
+  plots/crb_sim_components_occlusion.png
+  plots/crb_sim_components_transient.png
