@@ -1,0 +1,10 @@
+c*Delta_t = 0.116919 m de camino
+|d(d1+d2)/d rho| medio = 1.5986  ->  1 bin = 0.0731 m en rho
+bins del centroide en rho in [0.90,1.10]: 22..25
+paso FD delta_rho = 0.01 m = 27.3 % de un bin
+delta_rho=0.002 m -> sigma_rho=0.00851216 m, sigma_phi=2.5742 deg
+delta_rho=0.005 m -> sigma_rho=0.00872428 m, sigma_phi=2.57407 deg
+delta_rho=0.010 m -> sigma_rho=0.00879496 m, sigma_phi=2.57411 deg
+delta_rho=0.020 m -> sigma_rho=0.009015 m, sigma_phi=2.57518 deg
+delta_rho=0.040 m -> sigma_rho=0.00970782 m, sigma_phi=2.57537 deg
+delta_rho=0.080 m -> sigma_rho=0.0108078 m, sigma_phi=2.55763 deg
