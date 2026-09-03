@@ -11,3 +11,4 @@ docs/*.out
 docs/*.toc
 plots/*.pkl
 plots/regen.log
+!gpu_vs_cpu/*.png
