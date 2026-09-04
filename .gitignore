@@ -6,6 +6,7 @@ __pycache__/
 !plots/crb_*.png
 !docs/figs_consolidado/*.png
 !docs/figs_forward/*.png
+!docs/figs_crb_ellipses/*.png
 docs/*.aux
 docs/*.log
 docs/*.out

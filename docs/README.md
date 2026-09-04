@@ -13,6 +13,12 @@
   información de Fisher, jacobiano por diferencias finitas, cota de Cramér–Rao y
   elipses de incertidumbre, con la justificación de cada decisión y las fórmulas
   verificadas contra el código.
+- [`de_datos_a_elipses.tex`](de_datos_a_elipses.tex) →
+  [`de_datos_a_elipses.pdf`](de_datos_a_elipses.pdf) — **solo la mitad
+  estadística**: a partir de la tasa esperada $g(\psi)$, verosimilitud de
+  Poisson, Fisher, CRB como covarianza, y construcción de las elipses $k\sigma$
+  (qué estima, qué no, y por qué $1\sigma$ y $3\sigma$ son la misma forma a
+  distinta escala). Figuras en [`figs_crb_ellipses/`](figs_crb_ellipses/).
 - [`sustento_teorico_crb.tex`](sustento_teorico_crb.tex) →
   [`sustento_teorico_crb.pdf`](sustento_teorico_crb.pdf) — sustento teórico del
   CRB de la implementación.
@@ -26,8 +32,10 @@
 Los PDF se compilan con [tectonic](https://tectonic-typesetting.github.io/):
 
 ```bash
+python3 docs/figs_crb_ellipses/make_figs.py   # figuras de de_datos_a_elipses.pdf
 cd docs
 tectonic -X compile reporte_consolidado.tex
 tectonic -X compile forward_completo.tex
 tectonic -X compile sustento_teorico_crb.tex
+tectonic -X compile de_datos_a_elipses.tex
 ```
