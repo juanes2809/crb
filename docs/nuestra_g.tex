@@ -1,0 +1,320 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage[spanish,es-noquoting,es-tabla]{babel}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{csquotes}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!55!black]{hyperref}
+
+\newcommand{\vect}[1]{\boldsymbol{#1}}
+\newcommand{\matr}[1]{\mathbf{#1}}
+\newcommand{\code}[1]{\texttt{#1}}
+\DeclareMathOperator{\diag}{diag}
+
+\theoremstyle{definition}
+\newtheorem{obs}{Observación}
+
+\title{\textbf{Nuestra $g(\vect\psi)$}\\[2mm]
+\large La ecuación que se deriva, frente a la del \emph{writeup}}
+\author{Repositorio \code{crb}}
+\date{5 de septiembre de 2026}
+
+\begin{document}
+\shorthandoff{"}
+\maketitle
+
+\begin{abstract}
+El \emph{writeup} de referencia escribe la medida como una integral continua
+de radiancia $L_h$ sobre el p\'ixel y el tiempo. Aqu\'i se escribe
+\textbf{la nuestra}: la funci\'on $g(\vect\psi)$ que implementa
+\code{simulate\_transient\_torch} m\'as el fondo $b$. Es una sola f\'ormula,
+con las tres no suaves a la vista. Despu\'es, la versi\'on suave (la que se
+quiere derivar en cerrado) y por qu\'e $\rho$ y $\varphi$ salen correlacionados
+en Fisher: el SPAD \textbf{no} est\'a en el origen.
+\end{abstract}
+
+%=======================================================================
+\section{Qu\'e escribe el \emph{writeup}, y qu\'e escribimos nosotros}
+
+All\'i la cuenta esperada en un bin es del estilo
+%
+\[
+y_q(\vect\Psi)
+=\iint L_h(\vect p,t;\vect\Psi)\,d\vect p\,dt,
+\]
+%
+y las derivadas se meten bajo el integrando. Tres reflexiones difusas
+($8\pi^3=(2\pi)^3$), p\'ixel como huella con \'area, pulso continuo.
+
+La nuestra es una \textbf{suma de Riemann} sobre los tri\'angulos de la malla
+y los \emph{centros} de p\'ixel (sin factor de \'area del p\'ixel), dos
+rebotes ($4\pi^2=(2\pi)^2$), pulso $=$ masa en un solo bin. El \'indice de
+medici\'on es el par $(p,j)$: p\'ixel $p$, bin $j$. El par\'ametro es
+%
+\begin{equation}
+\vect\psi=(\rho,\varphi).
+\end{equation}
+%
+Eso es lo que se deriva: $\partial g_{p,j}/\partial\vect\psi$.
+
+%=======================================================================
+\section{Geometr\'ia que entra en $g$}
+
+La faceta, ya colocada, es una malla de tri\'angulos $t$ con centro
+$\vect c_t(\vect\psi)$, \'area $A_t(\vect\psi)$ y normal
+$\vect n_t(\vect\psi)$. El l\'aser est\'a en el origen,
+$\vect p_L=\vect 0$, con normal $\vect n_L=(0,0,1)$. El suelo tiene normal
+$\vect n_F=(0,0,1)$. El p\'ixel $p$ es un \textbf{punto} en el piso,
+%
+\begin{equation}
+\label{eq:pixel}
+\vect p_p
+=
+\bigl(x_p,\, y_p,\, 0\bigr),
+\qquad
+x_p
+=
+-\tfrac{\mathrm{FOV}}{2}+\tfrac{\mathrm{FOV}}{2N}+p_x\tfrac{\mathrm{FOV}}{N},
+\quad
+y_p
+=
+-\mathrm{FOV}+\tfrac{\mathrm{FOV}}{2N}+p_y\tfrac{\mathrm{FOV}}{N},
+\end{equation}
+%
+con $\mathrm{FOV}=0.25\,\mathrm{m}$, $N=32$. El centro del FOV es
+$(0,-\mathrm{FOV}/2)=(0,-0.125)$: \textbf{todo el SPAD vive en $y<0$},
+ning\'un p\'ixel cae en el origen ni sobre la arista $x=0$
+($N$ par y el muestreo va a centros de celda).
+
+Distancias y cosenos (antes de recortar):
+%
+\begin{align}
+d_{1,t}(\vect\psi)
+&=\lVert\vect p_L-\vect c_t\rVert,
+&
+d_{2,tp}(\vect\psi)
+&=\lVert\vect p_p-\vect c_t\rVert,
+\label{eq:d}\\[4pt]
+\mu_{1,t}
+&=\vect n_t\cdot\frac{\vect p_L-\vect c_t}{d_{1,t}},
+&
+\mu_{2,tp}
+&=\vect n_t\cdot\frac{\vect p_p-\vect c_t}{d_{2,tp}},
+\label{eq:mu12}\\[4pt]
+\mu_{3,t}
+&=\vect n_L\cdot\frac{\vect c_t-\vect p_L}{d_{1,t}},
+&
+\mu_{4,tp}
+&=\vect n_F\cdot\frac{\vect c_t-\vect p_p}{d_{2,tp}}.
+\label{eq:mu34}
+\end{align}
+%
+Oclusi\'on: recta en $XY$ entre $\vect c_t$ y $\vect p_p$, corte con $x=0$,
+%
+\begin{equation}
+\label{eq:xint}
+m_{tp}=\frac{c_{t,y}-y_p}{c_{t,x}-x_p},
+\qquad
+x_{\mathrm{int},tp}
+=
+-\frac{c_{t,y}-m_{tp}\,c_{t,x}}{m_{tp}}.
+\end{equation}
+
+%=======================================================================
+\section{La $g$ dura (el simulador)}
+\label{sec:dura}
+
+Con fondo $b=0.1$, intensidad del l\'aser $I_{\mathrm{laser}}=1000$, $[x]_+=\max(0,x)$:
+%
+\begin{equation}
+\label{eq:g-dura}
+\boxed{\;
+\begin{aligned}
+g_{p,j}(\vect\psi)
+&=
+b
++
+\sum_t
+A_t(\vect\psi)\,
+I_{\mathrm{laser}}
+\frac
+{[\mu_{1,t}]_+\,[\mu_{2,tp}]_+\,[\mu_{3,t}]_+\,[\mu_{4,tp}]_+}
+{4\pi^2\,d_{1,t}(\vect\psi)^2\,d_{2,tp}(\vect\psi)^2}
+\\[6pt]
+&\hspace{1.6em}
+\cdot
+\underbrace{\mathbf{1}\bigl[x_{\mathrm{int},tp}(\vect\psi)>0\bigr]}_{\text{oclusi\'on}}
+\cdot
+\underbrace{\mathbf{1}\!\left[j=\left\lceil\frac{d_{1,t}+d_{2,tp}}{c\,\Delta t}\right\rceil\right]}_{\text{binning}}
+\end{aligned}
+\;}
+\end{equation}
+%
+Eso es \emph{una} funci\'on $g(\vect\psi)\in\mathbb R^{N^2 N_{\mathrm{bins}}}$
+($32\times32\times95=97\,280$ n\'umeros). Las tres no suaves est\'an
+expl\'icitas: $\max$, el indicador de $x_{\mathrm{int}}$ y el $\lceil\cdot\rceil$.
+El resto (distancias, $1/d^2$, \'areas) ya es $C^\infty$ donde $d>0$.
+
+Es literalmente el bloque de \code{simulate\_transient\_torch}:
+\code{intensity} $\times$ \code{noc} depositado en
+\code{arrival\_bin = ceil((d1+d2)/(c*bin\_size))}, m\'as $b$ en
+\code{forward\_g\_polar}.
+
+%=======================================================================
+\section{La $g$ suave (la que se quiere derivar en cerrado)}
+\label{sec:suave}
+
+Misma radiometr\'ia y misma geometr\'ia; solo se sustituyen las tres no suaves:
+%
+\begin{equation}
+\label{eq:g-suave}
+\boxed{\;
+\begin{aligned}
+g_{p,j}(\vect\psi)
+&=
+b
++
+\sum_t
+A_t\,
+I_{\mathrm{laser}}
+\frac
+{s_\beta(\mu_{1,t})\,s_\beta(\mu_{2,tp})\,s_\beta(\mu_{3,t})\,s_\beta(\mu_{4,tp})}
+{4\pi^2\,d_{1,t}^2\,d_{2,tp}^2}
+\\[6pt]
+&\hspace{1.6em}
+\cdot
+\sigma\!\bigl(\kappa\, x_{\mathrm{int},tp}\bigr)
+\cdot
+S_j\!\bigl(t_{0,tp}(\vect\psi)\bigr)
+\end{aligned}
+\;}
+\end{equation}
+%
+con
+%
+\begin{align}
+s_\beta(x)
+&=\frac1\beta\log\bigl(1+e^{\beta x}\bigr)
+&&\text{(softplus $\leftrightarrow\max$)},
+\label{eq:softplus}\\[4pt]
+\sigma(u)
+&=\frac1{1+e^{-u}}
+&&\text{(sigmoide $\leftrightarrow$ oclusi\'on)},
+\label{eq:sig}\\[4pt]
+t_{0,tp}
+&=\frac{d_{1,t}+d_{2,tp}}{c},
+\label{eq:t0}\\[4pt]
+S_j(t_0)
+&=\frac12\Big[
+\mathrm{erf}\frac{(j+1)\Delta t-t_0}{\sqrt2\,\tau}
+-
+\mathrm{erf}\frac{j\Delta t-t_0}{\sqrt2\,\tau}
+\Big]
+&&\text{(pulso en el bin $j$ $\leftrightarrow\lceil\cdot\rceil$)}.
+\label{eq:Sj}
+\end{align}
+%
+Anchos atados a la discretizaci\'on del simulador:
+$\tau=\Delta t/\sqrt{12}$, $\kappa=N/\mathrm{FOV}$ (penumbra de un p\'ixel),
+$\beta\sim50$. Al endurecer $(\tau,1/\kappa,1/\beta)\to0$ se recupera
+\eqref{eq:g-dura}.
+
+De \eqref{eq:g-suave} el jacobiano $\partial g/\partial\vect\psi$ es cl\'asico
+(autograd o sympy). Con Poisson,
+%
+\begin{equation}
+\matr I(\vect\psi)
+=
+\sum_{p,j}
+\frac1{g_{p,j}}
+\frac{\partial g_{p,j}}{\partial\vect\psi}
+\frac{\partial g_{p,j}}{\partial\vect\psi}^{\!\top},
+\qquad
+\matr C=\matr I^{+}.
+\end{equation}
+%
+Eso no cambia al suavizar: cambia $g$ y $J$, no la f\'ormula de Fisher.
+
+%=======================================================================
+\section{Por qu\'e $\rho$ y $\varphi$ est\'an correlacionados}
+\label{sec:corr}
+
+S\'i: \textbf{que ning\'un p\'ixel est\'e en el origen} (ni en $x=0$) es una
+raz\'on central de la correlaci\'on. No es la \'unica, y no tiene que ver con
+que $g_{p,j}$ no sea exactamente cero (eso lo evita el fondo $b$).
+
+\subsection{Si el \'unico p\'ixel estuviera en $\vect 0$}
+
+Entonces $d_{1,t}=d_{2,t}=\rho$ (la faceta est\'a a distancia $\rho$ del
+origen) y el tiempo de vuelo ser\'ia $t_0=2\rho/c$, \textbf{independiente de
+$\varphi$}. El binning no enterar\'ia del \'angulo. $\varphi$ solo entrar\'ia
+por la oclusi\'on y los cosenos. El t\'ermino de Fisher
+%
+\begin{equation}
+I_{\rho\varphi}
+=
+\sum_{p,j}
+\frac1{g_{p,j}}
+\frac{\partial g_{p,j}}{\partial\rho}
+\frac{\partial g_{p,j}}{\partial\varphi}
+\end{equation}
+%
+perder\'ia toda la parte que viene del ToF.
+
+\subsection{Lo que tenemos de verdad}
+
+El SPAD es un parche en $y\in[-0.25,0)$, centrado en $(0,-0.125)$. Con $N=32$
+par, los centros \eqref{eq:pixel} \textbf{nunca} caen en $x=0$ ni en
+$(0,0)$. Entonces
+%
+\[
+d_{2,tp}
+=
+\bigl\lVert
+(\rho\cos\varphi-x_p,\;\rho\sin\varphi-y_p,\;z_t)
+\bigr\rVert
+\]
+%
+depende de \textbf{las dos} coordenadas: girar a $\rho$ fijo acerca o aleja la
+faceta del parche (que no est\'a en el origen). El camino $d_1+d_2$ tambi\'en.
+Por eso el mismo bin es sensible a $\rho$ y a $\varphi$ a la vez, y
+$I_{\rho\varphi}\neq0$.
+
+Adem\'as $x_{\mathrm{int}}$ \eqref{eq:xint} depende de $(c_x,c_y)$, o sea de
+$(\rho\cos\varphi,\rho\sin\varphi)$: mover $\rho$ desplaza la sombra, que es el
+mecanismo que mide $\varphi$. Esa v\'ia de correlaci\'on existir\'ia aunque el
+ToF no acoplase.
+
+El signo que sale en toda la rejilla, $r_{\rho\varphi}<0$, es el de
+compensaci\'on: alejar y girar hacia el hueco dejan un transitorio parecido al
+primer orden. Eso no lo inventa la FD ni lo quita el suavizado
+\eqref{eq:g-suave}: la geometr\'ia es la misma.
+
+\subsection{Qu\'e no es la causa}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{El fondo $b=0.1$.} Impide $g_q=0$ y regulariza $1/g_q$. No
+        crea $I_{\rho\varphi}$. Con $b=0$ (y solo los bins con se\~nal) la
+        correlaci\'on seguir\'ia ah\'i.
+  \item \textbf{Que $x=0$ no tenga p\'ixel.} Evita el $m=\infty$ de
+        \eqref{eq:xint} cuando $N$ es impar y hay columna en la arista. Es
+        numerica; la correlaci\'on vendr\'ia igual con un p\'ixel en $x=0$
+        (ese p\'ixel, de hecho, estar\'ia justo en la frontera de oclusi\'on).
+\end{itemize}
+
+\begin{obs}
+$\rho$ y $\varphi$ son coordenadas independientes. Lo correlacionado son los
+\emph{errores de estimarlas}, porque los datos (ToF al parche desplazado +
+sombra) no las separan. Suavizar \eqref{eq:g-dura} en \eqref{eq:g-suave} no
+destruye ese t\'ermino cruzado de Fisher.
+\end{obs}
+
+\end{document}
