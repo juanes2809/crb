@@ -13,6 +13,10 @@
   información de Fisher, jacobiano por diferencias finitas, cota de Cramér–Rao y
   elipses de incertidumbre, con la justificación de cada decisión y las fórmulas
   verificadas contra el código.
+- [`nuestra_g.tex`](nuestra_g.tex) →
+  [`nuestra_g.pdf`](nuestra_g.pdf) — la $g(\psi)$ nuestra en una sola
+  ecuación (dura y suave), frente al writeup, y por qué $\rho$ y $\varphi$
+  salen correlacionados (el SPAD no está en el origen).
 - [`sustento_teorico_crb.tex`](sustento_teorico_crb.tex) →
   [`sustento_teorico_crb.pdf`](sustento_teorico_crb.pdf) — sustento teórico del
   CRB de la implementación.
@@ -30,4 +34,5 @@ cd docs
 tectonic -X compile reporte_consolidado.tex
 tectonic -X compile forward_completo.tex
 tectonic -X compile sustento_teorico_crb.tex
+tectonic -X compile nuestra_g.tex
 ```
